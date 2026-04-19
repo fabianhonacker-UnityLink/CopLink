@@ -1,4 +1,4 @@
-export default function PersonDetailPage({ params }: PersonPageProps) {
+export default function PersonenPage() {
   return (
     <main className="min-h-screen bg-black text-white">
       <section className="border-b border-zinc-800 bg-zinc-900/70">
@@ -36,30 +36,30 @@ export default function PersonDetailPage({ params }: PersonPageProps) {
                 </tr>
               </thead>
               <tbody>
-  <tr className="border-t border-zinc-800 hover:bg-zinc-800/40 transition">
-    <td className="px-4 py-3">
-      <a href="/personen/leon-hartmann" className="text-blue-400 hover:text-blue-300">
-        Leon Hartmann
-      </a>
-    </td>
-    <td className="px-4 py-3">12.05.1996</td>
-    <td className="px-4 py-3">555-0142</td>
-    <td className="px-4 py-3 text-green-400">Unauffällig</td>
-    <td className="px-4 py-3 text-zinc-400">Keine Einträge</td>
-  </tr>
+                <tr className="border-t border-zinc-800 transition hover:bg-zinc-800/40">
+                  <td className="px-4 py-3">
+                    <a href="/personen/leon-hartmann" className="text-blue-400 hover:text-blue-300">
+                      Leon Hartmann
+                    </a>
+                  </td>
+                  <td className="px-4 py-3">12.05.1996</td>
+                  <td className="px-4 py-3">555-0142</td>
+                  <td className="px-4 py-3 text-green-400">Unauffällig</td>
+                  <td className="px-4 py-3 text-zinc-400">Keine Einträge</td>
+                </tr>
 
-  <tr className="border-t border-zinc-800 hover:bg-zinc-800/40 transition">
-    <td className="px-4 py-3">
-      <a href="/personen/mara-voss" className="text-blue-400 hover:text-blue-300">
-        Mara Voss
-      </a>
-    </td>
-    <td className="px-4 py-3">03.11.1992</td>
-    <td className="px-4 py-3">555-0198</td>
-    <td className="px-4 py-3 text-yellow-400">Beobachtung</td>
-    <td className="px-4 py-3 text-zinc-400">Bekannte Kontakte im Hafen</td>
-  </tr>
-</tbody>
+                <tr className="border-t border-zinc-800 transition hover:bg-zinc-800/40">
+                  <td className="px-4 py-3">
+                    <a href="/personen/mara-voss" className="text-blue-400 hover:text-blue-300">
+                      Mara Voss
+                    </a>
+                  </td>
+                  <td className="px-4 py-3">03.11.1992</td>
+                  <td className="px-4 py-3">555-0198</td>
+                  <td className="px-4 py-3 text-yellow-400">Beobachtung</td>
+                  <td className="px-4 py-3 text-zinc-400">Bekannte Kontakte im Hafen</td>
+                </tr>
+              </tbody>
             </table>
           </div>
         </div>

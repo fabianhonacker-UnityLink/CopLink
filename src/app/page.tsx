@@ -1,757 +1,48 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
+import { Fragment, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import DesktopIcon from "../components/DesktopIcon";
 import WindowFrame from "../components/WindowFrame";
+import { ActionBar, FancyCheckbox, FancyInput, FancySelect, FancyTextarea, FieldBlock, InfoCard, SectionTitle, StatusBadge, ToneBadge, UiButton, formatLinkedChargeStatus, getStrafanzeigeStatusMeta, type BadgeTone } from "../components/coplink/UiPrimitives";
+import { STRAFGESETZE, STRAFKATALOG, calculateStrafSummen, formatEuroValue, formatHeValue, formatPointsValue, formatStrafMeta, getOffensesByIds, type StrafModifierState, type StrafgesetzId, type StrafkatalogEintrag } from "../data/strafkatalog";
+import { ASSERVAT_OPTIONS, INITIAL_AKTEN_RECORDS, INITIAL_ASSERVATEN_ITEMS, INITIAL_ASSERVATEN_SCHRAENKE, INITIAL_KFZ_RECORDS, INITIAL_OFFICER_RECORDS, INITIAL_STRAFANZEIGEN, INITIAL_WEAPON_RECORDS, KFZ_HU_STATUS_OPTIONS, KFZ_STATUS_OPTIONS, KFZ_VERSICHERUNG_OPTIONS, LICENSE_OPTIONS, VEHICLE_MODEL_OPTIONS, WEAPON_CATALOG_OPTIONS, WEAPON_STATUS_OPTIONS, formatHuDisplay, getHuTone, getInitialKfzForm, getInitialWeaponForm, getInsuranceTone, getOwnerRegistrationLabel, getOwnerRegistrationTone, getWeaponRegistrationLabel, getWeaponRegistrationTone, getWeaponStatusTone, STRAFANZEIGE_STATUS_OPTIONS, type AktenCharge, type AktenEntry, type AktenEntryType, type AktenLicense, type AktenRecord, type AktenRecordType, type AktenVehicle, type AsservatenItemCategory, type AsservatenItemRecord, type AsservatenSchrankRecord, type KfzFormState, type KfzRecord, type OfficerRecord, type PersonenAkteData, type SammelAkteData, type StrafanzeigeRecord, type StrafanzeigeStatus, type WeaponFormState, type WeaponRecord, type WeaponStatus } from "../lib/coplink/recordsData";
+import { APPS, TASKBAR_PINNED, clamp, desktopApps, getApp, getInitialIconPositions, getWindowPlacement, pinnedApps, type AppConfig, type AppId, type DragState, type IconDragState, type IconPosition, type ResizeDirection, type ResizeState, type WindowState } from "../lib/coplink/desktopShell";
+import { QuickOpenContext, RecordsContext } from "../lib/coplink/appContexts";
+import { createStrafanzeigenId, formatDate, formatDateTimeStamp, formatOffenseMeta, formatTime, normalizeSearchValue } from "../lib/coplink/sharedUtils";
+import { AppShell, SearchInput } from "../components/coplink/AppChrome";
+import { AusbildungenAppView, EinstellungenAppView, EinsatzberichteAppView, ErmittlungenAppView, FunkAppView, GefaengnisAppView, KalenderAppView, LeitstelleAppView, MeinPcAppView, NotizenAppView, UrlaubAppView, UnitsAppView, VorlagenAppView, WissensdatenbankAppView } from "../components/coplink/StaticAppViews";
+import hammerModdingCopLinkLogo from "../assets/coplink-logo-hm.png";
+import officerAvatarPlaceholder from "../assets/officer-avatar.png";
 
-type AppId =
-  | "akten"
-  | "ermittlungen"
-  | "kfz"
-  | "officer"
-  | "leitstelle"
-  | "stempeluhr"
-  | "einstellungen"
-  | "ausbildungen"
-  | "taschenrechner"
-  | "gefaengnis"
-  | "strafen"
-  | "urlaub"
-  | "strafanzeigen"
-  | "vorlagen"
-  | "funk"
-  | "einsatzberichte"
-  | "kalender"
-  | "notizen"
-  | "waffenregister"
-  | "units"
-  | "wissensdatenbank"
-  | "meinpc";
+function formatDutyDuration(totalMinutes: number) {
+  if (totalMinutes <= 0) return "0 Min.";
 
-type AppConfig = {
-  id: AppId;
-  label: string;
-  desktopLabel?: string;
-  short: string;
-  accent: string;
-  desktop?: boolean;
-  pinned?: boolean;
-  defaultSize?: { width: number; height: number };
-};
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
 
-type WindowState = {
-  id: AppId;
-  appId: AppId;
-  title: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  prevX: number;
-  prevY: number;
-  prevWidth: number;
-  prevHeight: number;
-  isMinimized: boolean;
-  isMaximized: boolean;
-  z: number;
-};
+  if (hours <= 0) return `${minutes} Min.`;
+  if (minutes <= 0) return `${hours} Std.`;
+  return `${hours} Std. ${minutes} Min.`;
+}
 
-type DragState = {
-  id: AppId;
-  pointerOffsetX: number;
-  pointerOffsetY: number;
-};
+function getLiveDutyMinutes(officer: OfficerRecord, currentTime: Date) {
+  if (!officer.currentShiftStartedAt) return officer.totalDutyMinutes;
 
-type ResizeDirection = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
+  const startedAt = new Date(officer.currentShiftStartedAt);
+  const diffMinutes = Math.max(0, Math.floor((currentTime.getTime() - startedAt.getTime()) / 60000));
+  return officer.totalDutyMinutes + diffMinutes;
+}
 
-type ResizeState = {
-  id: AppId;
-  direction: ResizeDirection;
-  startMouseX: number;
-  startMouseY: number;
-  startX: number;
-  startY: number;
-  startWidth: number;
-  startHeight: number;
-};
-
-type IconPosition = {
-  x: number;
-  y: number;
-};
-
-type IconDragState = {
-  id: AppId;
-  pointerOffsetX: number;
-  pointerOffsetY: number;
-  startMouseX: number;
-  startMouseY: number;
-  moved: boolean;
-};
-
-const APPS: AppConfig[] = [
-  { id: "akten", label: "Akten", short: "AK", accent: "from-rose-500 to-red-500", desktop: true, pinned: true, defaultSize: { width: 760, height: 520 } },
-  { id: "ermittlungen", label: "Ermittlungen", short: "ER", accent: "from-red-500 to-orange-500", desktop: true, defaultSize: { width: 860, height: 560 } },
-  { id: "kfz", label: "KFZ-Register", short: "KFZ", accent: "from-zinc-300 to-slate-500", desktop: true, pinned: true, defaultSize: { width: 820, height: 480 } },
-  { id: "officer", label: "Officer", short: "OF", accent: "from-orange-400 to-amber-500", desktop: true, defaultSize: { width: 920, height: 560 } },
-  { id: "leitstelle", label: "Leitstelle", short: "LT", accent: "from-sky-300 to-blue-400", desktop: true, defaultSize: { width: 980, height: 560 } },
-  { id: "stempeluhr", label: "Stempeluhr", short: "ST", accent: "from-emerald-400 to-green-500", desktop: true, pinned: true, defaultSize: { width: 760, height: 420 } },
-  { id: "einstellungen", label: "Einstellungen", short: "EI", accent: "from-violet-500 to-fuchsia-500", desktop: true, defaultSize: { width: 980, height: 600 } },
-  { id: "ausbildungen", label: "Ausbildungen", short: "AU", accent: "from-cyan-500 to-sky-500", desktop: true, defaultSize: { width: 760, height: 460 } },
-  { id: "taschenrechner", label: "Taschenrechner", short: "TR", accent: "from-indigo-400 to-violet-500", desktop: true, pinned: true, defaultSize: { width: 360, height: 470 } },
-  { id: "gefaengnis", label: "Gefängnis", short: "GE", accent: "from-slate-500 to-zinc-600", desktop: true, defaultSize: { width: 900, height: 520 } },
-  { id: "strafen", label: "Strafen", short: "SF", accent: "from-red-600 to-rose-500", desktop: true, defaultSize: { width: 1120, height: 640 } },
-  { id: "urlaub", label: "Urlaub", short: "UR", accent: "from-teal-500 to-emerald-500", desktop: true, defaultSize: { width: 760, height: 430 } },
-  { id: "strafanzeigen", label: "Strafanzeigen", short: "SA", accent: "from-orange-500 to-amber-500", desktop: true, defaultSize: { width: 1020, height: 560 } },
-  { id: "vorlagen", label: "Vorlagen", short: "VO", accent: "from-slate-400 to-slate-500", desktop: true, defaultSize: { width: 840, height: 500 } },
-  { id: "funk", label: "Funk", short: "FU", accent: "from-cyan-400 to-blue-500", desktop: true, defaultSize: { width: 860, height: 520 } },
-  { id: "einsatzberichte", label: "Einsatzberichte", short: "EB", accent: "from-red-500 to-pink-500", desktop: true, defaultSize: { width: 1120, height: 560 } },
-  { id: "kalender", label: "Kalender", short: "KA", accent: "from-blue-500 to-indigo-500", desktop: true, pinned: true, defaultSize: { width: 760, height: 500 } },
-  { id: "notizen", label: "Notizen", short: "NO", accent: "from-yellow-500 to-amber-500", desktop: true, defaultSize: { width: 520, height: 420 } },
-  { id: "waffenregister", label: "Waffenregister", short: "WR", accent: "from-neutral-500 to-zinc-600", desktop: true, defaultSize: { width: 820, height: 500 } },
-  { id: "units", label: "Units", short: "UN", accent: "from-cyan-400 to-indigo-500", desktop: true, defaultSize: { width: 780, height: 460 } },
-  { id: "wissensdatenbank", label: "Wissensdatenbank", desktopLabel: "Wissen", short: "WD", accent: "from-slate-500 to-blue-500", desktop: true, defaultSize: { width: 900, height: 520 } },
-  { id: "meinpc", label: "Mein PC", short: "PC", accent: "from-sky-500 to-cyan-500", desktop: true, defaultSize: { width: 760, height: 500 } },
-];
-
-const QUICK_APPS: AppId[] = ["leitstelle", "akten", "kfz", "waffenregister", "officer", "kalender", "ermittlungen", "einstellungen"];
-const TASKBAR_PINNED: AppId[] = ["leitstelle", "akten", "kfz", "waffenregister"];
-const desktopApps = APPS.filter((app) => app.desktop);
-const pinnedApps = TASKBAR_PINNED.map((id) => APPS.find((app) => app.id === id)).filter(Boolean) as AppConfig[];
-
-function getApp(appId: AppId) {
-  return APPS.find((app) => app.id === appId)!;
+function formatDutyTimestamp(value: string | null) {
+  if (!value) return "—";
+  return formatDateTimeStamp(new Date(value));
 }
 
 
-const QuickOpenContext = createContext<(appId: AppId) => void>(() => {});
-
-function getInitialIconPositions() {
-  const layout = [16, 146, 276, 406];
-  const startY = 118;
-  const rowGap = 128;
-  const positions: Record<AppId, IconPosition> = {} as Record<AppId, IconPosition>;
-
-  desktopApps.forEach((app, index) => {
-    const column = index % layout.length;
-    const row = Math.floor(index / layout.length);
-    positions[app.id] = {
-      x: layout[column],
-      y: startY + row * rowGap,
-    };
-  });
-
-  return positions;
-}
-
-function clamp(n: number, min: number, max: number) {
-  return Math.min(Math.max(n, min), max);
-}
-
-function getWindowPlacement(app: AppConfig, openCount: number, desktop: DOMRect | null) {
-  const fallbackWidth = app.defaultSize?.width ?? 820;
-  const fallbackHeight = app.defaultSize?.height ?? 520;
-
-  if (!desktop) {
-    return {
-      width: Math.max(fallbackWidth, 1280),
-      height: Math.max(fallbackHeight, 700),
-      x: 420,
-      y: 42,
-    };
-  }
-
-  const preferredWidth = Math.max(fallbackWidth, Math.round(desktop.width * 0.58), 1020);
-  const preferredHeight = Math.max(fallbackHeight, Math.round(desktop.height * 0.62), 620);
-  const maxWidth = Math.max(960, desktop.width - 28);
-  const maxHeight = Math.max(600, desktop.height - 72);
-  const width = clamp(preferredWidth, 960, maxWidth);
-  const height = clamp(preferredHeight, 600, maxHeight);
-  const offsetX = (openCount % 4) * 18;
-  const offsetY = (openCount % 4) * 16;
-  const rightAnchoredX = desktop.width - width - 24 - offsetX;
-  const topAnchoredY = 28 + offsetY;
-
-  return {
-    width,
-    height,
-    x: clamp(rightAnchoredX, 40, Math.max(40, desktop.width - width - 20)),
-    y: clamp(topAnchoredY, 24, Math.max(24, desktop.height - height - 70)),
-  };
-}
-
-function formatDate(date: Date | null) {
-  if (!date) return "--.--.----";
-  return date.toLocaleDateString("de-DE", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
-}
-
-function formatTime(date: Date | null) {
-  if (!date) return "--:--";
-  return date.toLocaleTimeString("de-DE", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function AppSidebar() {
-  const openQuickApp = useContext(QuickOpenContext);
-
-  return (
-    <div className="flex h-full w-[210px] flex-col border-r border-white/8 bg-white/[0.03] px-4 py-5">
-      <p className="mb-4 text-[10px] uppercase tracking-[0.2em] text-white/35">Oft genutzte Apps</p>
-
-      <div className="space-y-2">
-        {QUICK_APPS.map((quickAppId) => {
-          const app = getApp(quickAppId);
-          return (
-            <button
-              key={app.id}
-              type="button"
-              onClick={() => openQuickApp(app.id)}
-              className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm text-white/85 transition hover:bg-white/8"
-            >
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-500/20 text-[11px] font-bold text-red-200">
-                {app.short.slice(0, 1)}
-              </span>
-              <span>{app.label}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="mt-auto rounded-2xl border border-white/8 bg-black/20 p-4">
-        <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Status</p>
-        <p className="mt-2 text-sm font-semibold text-emerald-400">System verbunden</p>
-        <p className="mt-1 text-xs text-white/45">Bitterhafen CopLink aktiv</p>
-      </div>
-    </div>
-  );
-}
-
-function AppShell({
-  breadcrumb,
-  title,
-  actions,
-  children,
-}: {
-  breadcrumb: string;
-  title: string;
-  actions?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex h-full bg-[#090b11] text-white">
-      <AppSidebar />
-      <div className="window-scrollbar flex-1 overflow-auto px-5 py-5">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.32em] text-red-200/60">{breadcrumb}</p>
-            <h1 className="mt-2 text-2xl font-bold text-white">{title}</h1>
-          </div>
-          {actions ? <div className="shrink-0">{actions}</div> : null}
-        </div>
-        <div className="mt-5">{children}</div>
-      </div>
-    </div>
-  );
-}
-
-function SearchInput({ placeholder }: { placeholder: string }) {
-  return (
-    <input
-      type="text"
-      placeholder={placeholder}
-      className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none transition placeholder:text-white/25 focus:border-red-400/40"
-    />
-  );
-}
-
-
-type AktenRecordType = "personenakte" | "sammelakte";
-type AktenEntryType = "Straftaten" | "Gangstraftaten" | "Bußgelder und Normales";
-
-type AktenLicense = {
-  id: string;
-  name: string;
-  aussteller: string;
-  nummer: string;
-};
-
-type AktenWeapon = {
-  id: string;
-  weapon: string;
-  serial: string;
-  status: string;
-};
-
-type VehicleModelOption = {
-  id: string;
-  modell: string;
-  fahrzeugtyp: string;
-};
-
-type AktenCharge = {
-  id: string;
-  from: string;
-  taeter: string;
-  officer: string;
-  status: string;
-};
-
-type AktenVehicle = {
-  id: string;
-  kennzeichen: string;
-  fahrzeugtyp: string;
-  modell: string;
-  hu: string;
-  versicherung: string;
-  status: string;
-};
-
-type AktenEntry = {
-  id: string;
-  type: AktenEntryType;
-  title: string;
-  creator: string;
-  sentence: string;
-  date: string;
-  notes: string;
-};
-
-type PersonenAkteData = {
-  sharedBy?: string;
-  aktennummer: string;
-  imageLabel: string;
-  vorNachname: string;
-  geburtsdatum: string;
-  alias: string;
-  telefon: string;
-  groesse: string;
-  augenfarbe: string;
-  haarfarbe: string;
-  geschlecht: string;
-  tags: string[];
-  lizenzen: AktenLicense[];
-  waffen: AktenWeapon[];
-  verkehrspunkte: number;
-  strafanzeigen: AktenCharge[];
-  fahrzeuge: AktenVehicle[];
-  eintraege: AktenEntry[];
-};
-
-type SammelAkteData = {
-  sharedBy?: string;
-  aktennummer: string;
-  zeitraum: string;
-  ort: string;
-  federfuehrung: string;
-  beschreibung: string;
-  beteiligte: string[];
-  tags: string[];
-  verknuepfungen: string[];
-  letzteMassnahme: string;
-};
-
-type AktenRecord = {
-  id: string;
-  kind: AktenRecordType;
-  title: string;
-  status: string;
-  lastUpdated: string;
-  searchable: string[];
-  person?: PersonenAkteData;
-  collection?: SammelAkteData;
-};
-
-const INITIAL_AKTEN_RECORDS: AktenRecord[] = [
-  {
-    id: "18079433-31484-CPN",
-    kind: "personenakte",
-    title: "Vale Hutch",
-    status: "geteilt",
-    lastUpdated: "17.04.2026 03:42",
-    searchable: ["vale hutch", "18079433-31484-cpn", "vale", "hutch"],
-    person: {
-      sharedBy: "FIB",
-      aktennummer: "18079433-31484-CPN",
-      imageLabel: "VH",
-      vorNachname: "Vale Hutch",
-      geburtsdatum: "07.12.1998",
-      alias: "-",
-      telefon: "-",
-      groesse: "186",
-      augenfarbe: "-",
-      haarfarbe: "Schwarz",
-      geschlecht: "M",
-      tags: ["geteilt", "beobachtung"],
-      lizenzen: [],
-      waffen: [],
-      verkehrspunkte: 0,
-      strafanzeigen: [],
-      fahrzeuge: [],
-      eintraege: [
-        {
-          id: "752106-18079433-CPN",
-          type: "Straftaten",
-          title: "Strafanzeige mit Haftstrafe",
-          creator: "Unbekannt",
-          sentence: "80000 Dollar und 60 Monate",
-          date: "16.04.2026 23:53",
-          notes: "Straftat",
-        },
-      ],
-    },
-  },
-  {
-    id: "91488310-32039-CPA",
-    kind: "personenakte",
-    title: "Erwin Eisenhauer",
-    status: "gesucht",
-    lastUpdated: "17.04.2026 02:10",
-    searchable: ["erwin eisenhauer", "gesucht", "68", "eisenhauer"],
-    person: {
-      aktennummer: "91488310-32039-CPA",
-      imageLabel: "EE",
-      vorNachname: "Erwin Eisenhauer",
-      geburtsdatum: "21.03.1994",
-      alias: "-",
-      telefon: "555-0183",
-      groesse: "181",
-      augenfarbe: "Braun",
-      haarfarbe: "Dunkelblond",
-      geschlecht: "M",
-      tags: ["gesucht", "fahrzeugbezug"],
-      lizenzen: [
-        { id: "liz-1", name: "Führerschein Klasse B", aussteller: "Landespolizei Bitterhafen", nummer: "FS-B-18322" },
-      ],
-      waffen: [],
-      verkehrspunkte: 6,
-      strafanzeigen: [
-        { id: "sa-1", from: "Staatsanwaltschaft", taeter: "Erwin Eisenhauer", officer: "Agent Bane", status: "laufend" },
-      ],
-      fahrzeuge: [
-        { id: "veh-1", kennzeichen: "68", fahrzeugtyp: "Sedan", modell: "Jugular S-State", hu: "Abgelaufen am 14.04.2026", versicherung: "Teilkasko", status: "Gesucht" },
-      ],
-      eintraege: [
-        {
-          id: "310822-32039-CPA",
-          type: "Bußgelder und Normales",
-          title: "Verkehrsdelikt",
-          creator: "Officer Jax",
-          sentence: "6 Verkehrspunkte",
-          date: "12.04.2026 18:20",
-          notes: "HU abgelaufen / Fahrzeug gesucht",
-        },
-      ],
-    },
-  },
-  {
-    id: "SM-2026-011",
-    kind: "sammelakte",
-    title: "Sammelakte Hafenring",
-    status: "aktiv",
-    lastUpdated: "16.04.2026 20:08",
-    searchable: ["sammelakte hafenring", "hafenring", "sm-2026-011"],
-    collection: {
-      sharedBy: "IAA",
-      aktennummer: "SM-2026-011",
-      zeitraum: "14.04.2026 - 17.04.2026",
-      ort: "Hafenring / Industriegebiet",
-      federfuehrung: "Officer Heller",
-      beschreibung:
-        "Sammelakte zu mehreren verbundenen Vorfällen im Hafengebiet. Erfasst Beobachtungen, Fahrzeugbezüge, Hinweise aus Strafanzeigen und offene Verknüpfungen zu weiteren Ermittlungen.",
-      beteiligte: ["Vale Hutch", "Erwin Eisenhauer", "Unbekannte Dritte"],
-      tags: ["sammelakte", "priorität", "intern"],
-      verknuepfungen: ["Ermittlungen: Waffenhandel Ziki Peres", "KFZ-Register: Kennzeichen 68"],
-      letzteMassnahme: "Abgleich mit Strafanzeigen-Datenbank ausstehend",
-    },
-  },
-];
-
-const LICENSE_OPTIONS: AktenLicense[] = [
-  { id: "liz-b", name: "Führerschein Klasse B", aussteller: "Landespolizei Bitterhafen", nummer: "FS-B-99120" },
-  { id: "liz-c", name: "Führerschein Klasse C", aussteller: "Landespolizei Bitterhafen", nummer: "FS-C-77102" },
-  { id: "liz-boat", name: "Bootsführerschein", aussteller: "Landespolizei Bitterhafen", nummer: "BOOT-22018" },
-  { id: "liz-pilot", name: "Pilotenschein", aussteller: "Landespolizei Bitterhafen", nummer: "PIL-78110" },
-  { id: "liz-weapon", name: "Waffenlizenz", aussteller: "Landespolizei Bitterhafen", nummer: "WAF-48177" },
-];
-
-const VEHICLE_MODEL_OPTIONS: VehicleModelOption[] = [
-  { id: "veh-model-1", fahrzeugtyp: "Sedan", modell: "Jugular S-State" },
-  { id: "veh-model-2", fahrzeugtyp: "SUV", modell: "Granger 3600LX" },
-  { id: "veh-model-3", fahrzeugtyp: "Sportwagen", modell: "Comet S2" },
-  { id: "veh-model-4", fahrzeugtyp: "Motorrad", modell: "Shinobi" },
-  { id: "veh-model-5", fahrzeugtyp: "Kombi", modell: "Astron" },
-];
-
-const WEAPON_TYPE_OPTIONS = [
-  { id: "wep-type-1", weapon: "Pistol .50" },
-  { id: "wep-type-2", weapon: "Carbine Rifle" },
-  { id: "wep-type-3", weapon: "Pump Shotgun" },
-  { id: "wep-type-4", weapon: "SMG" },
-  { id: "wep-type-5", weapon: "Heavy Pistol" },
-];
-
-const CHARGE_OPTIONS: AktenCharge[] = [
-  { id: "ch-1", from: "Staatsanwaltschaft", taeter: "Erwin Eisenhauer", officer: "Agent Bane", status: "laufend" },
-  { id: "ch-2", from: "Leitstelle", taeter: "Vale Hutch", officer: "Officer Jax", status: "offen" },
-  { id: "ch-3", from: "Ermittlungen", taeter: "John Heller", officer: "Agent Hawk", status: "in Bearbeitung" },
-];
-
-type KfzRecord = {
-  id: string;
-  kennzeichen: string;
-  fahrzeugtyp: string;
-  modell: string;
-  halter: string;
-  assignedPersonAkteId: string | null;
-  huStatus: "Gültig" | "Abgelaufen" | "Unbekannt";
-  huAblauf: string;
-  versicherung: "Nicht versichert" | "Teilkasko" | "Vollkasko" | "Keine Angabe";
-  status: "Unauffällig" | "Gesucht" | "Beobachtung" | "Sichergestellt";
-  notiz: string;
-};
-
-type KfzFormState = {
-  kennzeichen: string;
-  modellId: string;
-  halter: string;
-  huStatus: KfzRecord["huStatus"];
-  huAblauf: string;
-  versicherung: KfzRecord["versicherung"];
-  status: KfzRecord["status"];
-  notiz: string;
-};
-
-const KFZ_STATUS_OPTIONS: KfzRecord["status"][] = ["Unauffällig", "Gesucht", "Beobachtung", "Sichergestellt"];
-const KFZ_HU_STATUS_OPTIONS: KfzRecord["huStatus"][] = ["Gültig", "Abgelaufen", "Unbekannt"];
-const KFZ_VERSICHERUNG_OPTIONS: KfzRecord["versicherung"][] = ["Nicht versichert", "Teilkasko", "Vollkasko", "Keine Angabe"];
-
-const INITIAL_KFZ_RECORDS: KfzRecord[] = [
-  {
-    id: "kfz-1",
-    kennzeichen: "68",
-    fahrzeugtyp: "Sedan",
-    modell: "Jugular S-State",
-    halter: "Erwin Eisenhauer",
-    assignedPersonAkteId: "91488310-32039-CPA",
-    huStatus: "Abgelaufen",
-    huAblauf: "2026-04-14",
-    versicherung: "Teilkasko",
-    status: "Gesucht",
-    notiz: "Bezug zu Personenakte Erwin Eisenhauer. Fahrzeug in mehreren Vorfällen genannt.",
-  },
-  {
-    id: "kfz-2",
-    kennzeichen: "RC30377",
-    fahrzeugtyp: "Sportwagen",
-    modell: "Sultan RS",
-    halter: "Elliot Hackermann",
-    assignedPersonAkteId: null,
-    huStatus: "Gültig",
-    huAblauf: "2026-11-20",
-    versicherung: "Vollkasko",
-    status: "Unauffällig",
-    notiz: "Im Register vorhanden, aktuell kein Fahndungsbezug.",
-  },
-  {
-    id: "kfz-3",
-    kennzeichen: "E-GHGT",
-    fahrzeugtyp: "SUV",
-    modell: "Granger 3600LX",
-    halter: "John Heller",
-    assignedPersonAkteId: null,
-    huStatus: "Gültig",
-    huAblauf: "2026-12-05",
-    versicherung: "Vollkasko",
-    status: "Unauffällig",
-    notiz: "Privatfahrzeug. Wird in der Personenakte als verknüpftes Fahrzeug geführt.",
-  },
-  {
-    id: "kfz-4",
-    kennzeichen: "VH-0721",
-    fahrzeugtyp: "SUV",
-    modell: "Granger 3600LX",
-    halter: "Vale Hutch",
-    assignedPersonAkteId: "18079433-31484-CPN",
-    huStatus: "Unbekannt",
-    huAblauf: "",
-    versicherung: "Keine Angabe",
-    status: "Beobachtung",
-    notiz: "Möglicher Fahrzeugbezug. Abgleich mit Leitstelle noch offen.",
-  },
-];
-
-const RecordsContext = createContext<{
-  aktenRecords: AktenRecord[];
-  setAktenRecords: (value: AktenRecord[] | ((prev: AktenRecord[]) => AktenRecord[])) => void;
-  kfzRecords: KfzRecord[];
-  setKfzRecords: (value: KfzRecord[] | ((prev: KfzRecord[]) => KfzRecord[])) => void;
-}>({
-  aktenRecords: INITIAL_AKTEN_RECORDS,
-  setAktenRecords: () => {},
-  kfzRecords: INITIAL_KFZ_RECORDS,
-  setKfzRecords: () => {},
-});
-
-
-function getInitialKfzForm(): KfzFormState {
-  return {
-    kennzeichen: "",
-    modellId: VEHICLE_MODEL_OPTIONS[0]?.id ?? "",
-    halter: "Unbekannt",
-    huStatus: "Gültig",
-    huAblauf: "",
-    versicherung: "Nicht versichert",
-    status: "Unauffällig",
-    notiz: "",
-  };
-}
-
-function formatHuDisplay(record: KfzRecord) {
-  if (record.huStatus === "Unbekannt") return "Unbekannt";
-  if (!record.huAblauf) return record.huStatus;
-  return record.huStatus === "Gültig" ? `Gültig bis ${record.huAblauf}` : `Abgelaufen seit ${record.huAblauf}`;
-}
-
-function getHuTone(record: KfzRecord) {
-  if (record.huStatus === "Gültig") return "bg-emerald-500/20 text-emerald-200 border-emerald-400/30";
-  if (record.huStatus === "Abgelaufen") return "bg-rose-500/20 text-rose-200 border-rose-400/30";
-  return "bg-rose-500/20 text-rose-200 border-rose-400/30";
-}
-
-function getInsuranceTone(versicherung: KfzRecord["versicherung"]) {
-  if (versicherung === "Vollkasko") return "bg-emerald-500/20 text-emerald-200 border-emerald-400/30";
-  if (versicherung === "Teilkasko") return "bg-amber-500/20 text-amber-200 border-amber-400/30";
-  if (versicherung === "Nicht versichert" || versicherung === "Keine Angabe") return "bg-rose-500/20 text-rose-200 border-rose-400/30";
-  return "bg-white/10 text-white/75 border-white/10";
-}
-
-function KfzToneBadge({ text, tone }: { text: string; tone: string }) {
-  return (
-    <span className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${tone}`}>
-      {text}
-    </span>
-  );
-}
-
-function getOwnerRegistrationLabel(record: KfzRecord) {
-  return record.halter && record.halter !== "Unbekannt" ? "Angemeldet" : "Abgemeldet";
-}
-
-function getOwnerRegistrationTone(record: KfzRecord) {
-  return record.halter && record.halter !== "Unbekannt"
-    ? "bg-emerald-500/18 text-emerald-200 border-emerald-400/35"
-    : "bg-rose-500/18 text-rose-200 border-rose-400/35";
-}
-
-
-function SectionTitle({ title, action }: { title: string; action?: React.ReactNode }) {
-  return (
-    <div className="mb-4 flex items-center justify-between gap-3">
-      <h2 className="text-[28px] font-bold text-white">{title}</h2>
-      {action ? <div>{action}</div> : null}
-    </div>
-  );
-}
-
-function InfoCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
-      <p className="text-xs uppercase tracking-[0.22em] text-white/38">{label}</p>
-      <p className="mt-3 text-base font-semibold text-white">{value || "-"}</p>
-    </div>
-  );
-}
-
-function StatusBadge({ text }: { text: string }) {
-  const normalized = text.toLowerCase();
-  const tone = normalized.includes("gesucht")
-    ? "bg-rose-500/20 text-rose-200 border-rose-400/30"
-    : normalized.includes("unauffällig")
-    ? "bg-emerald-500/20 text-emerald-200 border-emerald-400/30"
-    : normalized.includes("beobachtung") || normalized.includes("intern")
-    ? "bg-amber-500/20 text-amber-200 border-amber-400/30"
-    : normalized.includes("aktiv") || normalized.includes("geteilt")
-    ? "bg-cyan-500/20 text-cyan-200 border-cyan-400/30"
-    : "bg-white/10 text-white/80 border-white/10";
-
-  return (
-    <span className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${tone}`}>
-      {text}
-    </span>
-  );
-}
-
-function FancySelect({
-  value,
-  options,
-  onChange,
-  placeholder,
-}: {
-  value: string;
-  options: { value: string; label: string }[];
-  onChange: (value: string) => void;
-  placeholder?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    function handlePointerDown(event: MouseEvent) {
-      if (!ref.current) return;
-      if (!ref.current.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    }
-
-    window.addEventListener("mousedown", handlePointerDown);
-    return () => window.removeEventListener("mousedown", handlePointerDown);
-  }, []);
-
-  const selected = options.find((option) => option.value === value);
-
-  return (
-    <div ref={ref} className="ui-select-root">
-      <button
-        type="button"
-        onClick={() => setOpen((current) => !current)}
-        className={`ui-select-trigger ${open ? "is-open" : ""}`}
-      >
-        <span>{selected?.label ?? placeholder ?? "Auswählen"}</span>
-        <span className={`ui-select-caret ${open ? "is-open" : ""}`}>▾</span>
-      </button>
-
-      {open ? (
-        <div className="ui-select-menu window-scrollbar">
-          {options.map((option) => {
-            const active = option.value === value;
-            return (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => {
-                  onChange(option.value);
-                  setOpen(false);
-                }}
-                className={`ui-select-option ${active ? "is-active" : ""}`}
-              >
-                {option.label}
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
-    </div>
-  );
-}
 
 function AktenApp() {
-  const { aktenRecords: records, setAktenRecords: setRecords, kfzRecords, setKfzRecords } = useContext(RecordsContext);
+  const { aktenRecords: records, setAktenRecords: setRecords, kfzRecords, setKfzRecords, strafanzeigenRecords, weaponRecords, setWeaponRecords, officerRecords } = useContext(RecordsContext);
   const [search, setSearch] = useState("");
   const [scope, setScope] = useState<"alle" | AktenRecordType>("alle");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -766,6 +57,7 @@ function AktenApp() {
     augenfarbe: "",
     haarfarbe: "",
     geschlecht: "M",
+    sicherheitsstufe: "0",
   });
   const [collectionForm, setCollectionForm] = useState({
     title: "",
@@ -777,9 +69,8 @@ function AktenApp() {
 
   const [sectionMode, setSectionMode] = useState<null | "license" | "license-remove" | "vehicle" | "vehicle-remove" | "weapon" | "weapon-remove" | "charge" | "charge-remove" | "entry">(null);
   const [selectedLicenseId, setSelectedLicenseId] = useState(LICENSE_OPTIONS[0]?.id ?? "");
-  const [selectedWeaponTypeId, setSelectedWeaponTypeId] = useState(WEAPON_TYPE_OPTIONS[0]?.id ?? "");
-  const [weaponSerialInput, setWeaponSerialInput] = useState("");
-  const [selectedChargeId, setSelectedChargeId] = useState(CHARGE_OPTIONS[0]?.id ?? "");
+  const [selectedRegisterWeaponId, setSelectedRegisterWeaponId] = useState("");
+  const [selectedChargeId, setSelectedChargeId] = useState("");
   const [selectedRegisterVehicleId, setSelectedRegisterVehicleId] = useState("");
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [entryForm, setEntryForm] = useState({
@@ -806,15 +97,48 @@ function AktenApp() {
     return selectedRecord.person.eintraege.find((entry) => entry.id === selectedEntryId) ?? null;
   }, [selectedRecord, selectedEntryId]);
 
+  const selectedOfficerLink = useMemo(() => {
+    if (!selectedRecord || selectedRecord.kind !== "personenakte") return null;
+    return officerRecords.find((record) => record.personAkteId === selectedRecord.id) ?? null;
+  }, [officerRecords, selectedRecord]);
+
   const personVehicles = useMemo(() => {
     if (!selectedRecord || selectedRecord.kind !== "personenakte") return [] as KfzRecord[];
     return kfzRecords.filter((record) => record.assignedPersonAkteId === selectedRecord.id);
   }, [kfzRecords, selectedRecord]);
 
+  const personWeapons = useMemo(() => {
+    if (!selectedRecord || selectedRecord.kind !== "personenakte") return [] as WeaponRecord[];
+    return weaponRecords.filter((record) => record.assignedPersonAkteId === selectedRecord.id);
+  }, [selectedRecord, weaponRecords]);
+
   const availableRegisterVehicles = useMemo(() => {
     if (!selectedRecord || selectedRecord.kind !== "personenakte") return [] as KfzRecord[];
     return kfzRecords.filter((record) => !record.assignedPersonAkteId);
   }, [kfzRecords, selectedRecord]);
+
+  const availableRegisterWeapons = useMemo(() => {
+    if (!selectedRecord || selectedRecord.kind !== "personenakte") return [] as WeaponRecord[];
+    return weaponRecords.filter((record) => !record.assignedPersonAkteId && record.status !== "Beschlagnahmt");
+  }, [selectedRecord, weaponRecords]);
+
+  const availableChargeOptions = useMemo(() => {
+    return strafanzeigenRecords.map((charge) => ({
+      id: charge.id,
+      from: charge.from,
+      taeter: charge.taeter,
+      officer: charge.officer,
+      status: charge.status.toLowerCase(),
+      fahndung: charge.fahndung,
+    }));
+  }, [strafanzeigenRecords]);
+
+  const effectiveSelectedChargeId = useMemo(() => {
+    if (selectedChargeId && availableChargeOptions.some((charge) => charge.id === selectedChargeId)) {
+      return selectedChargeId;
+    }
+    return availableChargeOptions[0]?.id ?? "";
+  }, [availableChargeOptions, selectedChargeId]);
 
 
 function openCreatePersonRecord() {
@@ -827,6 +151,7 @@ function openCreatePersonRecord() {
     augenfarbe: "",
     haarfarbe: "",
     geschlecht: "M",
+    sicherheitsstufe: "0",
   });
   setCreateMode("personenakte");
 }
@@ -843,6 +168,7 @@ function openEditPersonRecord() {
     augenfarbe: selectedRecord.person.augenfarbe === "-" ? "" : selectedRecord.person.augenfarbe,
     haarfarbe: selectedRecord.person.haarfarbe === "-" ? "" : selectedRecord.person.haarfarbe,
     geschlecht: selectedRecord.person.geschlecht || "M",
+    sicherheitsstufe: String(selectedRecord.person.sicherheitsstufe ?? 0),
   });
   setCreateMode("personenakte-bearbeiten");
 }
@@ -869,10 +195,10 @@ function openEditPersonRecord() {
   useEffect(() => {
     if (!selectedRecord || selectedRecord.kind !== "personenakte" || !selectedRecord.person) return;
     setSelectedAttachedLicenseId(selectedRecord.person.lizenzen[0]?.id ?? "");
-    setSelectedAttachedWeaponId(selectedRecord.person.waffen[0]?.id ?? "");
+    setSelectedAttachedWeaponId(personWeapons[0]?.id ?? "");
     setSelectedAttachedChargeId(selectedRecord.person.strafanzeigen[0]?.id ?? "");
     setSelectedAttachedVehicleId(personVehicles[0]?.id ?? "");
-  }, [selectedRecord, personVehicles]);
+  }, [selectedRecord, personVehicles, personWeapons]);
 
   function updatePersonRecord(updater: (current: PersonenAkteData) => PersonenAkteData) {
     if (!selectedRecord || selectedRecord.kind !== "personenakte" || !selectedRecord.person) return;
@@ -956,43 +282,46 @@ function openEditPersonRecord() {
   }
 
   function addSelectedWeapon() {
-    const selectedWeapon = WEAPON_TYPE_OPTIONS.find((item) => item.id === selectedWeaponTypeId);
-    if (!selectedWeapon || !weaponSerialInput.trim()) return;
+    if (!selectedRecord || selectedRecord.kind !== "personenakte" || !selectedRegisterWeaponId) return;
 
-    const normalizedSerial = weaponSerialInput.trim().toUpperCase();
+    setWeaponRecords((prev) =>
+      prev.map((record) =>
+        record.id === selectedRegisterWeaponId
+          ? {
+              ...record,
+              besitzer: selectedRecord.person?.vorNachname ?? record.besitzer,
+              assignedPersonAkteId: selectedRecord.id,
+              status: "Registriert",
+            }
+          : record
+      )
+    );
 
-    updatePersonRecord((current) => {
-      if (current.waffen.some((item) => item.serial.toUpperCase() === normalizedSerial)) return current;
-      return {
-        ...current,
-        waffen: [
-          ...current.waffen,
-          {
-            id: `wep-${Date.now()}`,
-            weapon: selectedWeapon.weapon,
-            serial: normalizedSerial,
-            status: "Registriert",
-          },
-        ],
-      };
-    });
-
-    setWeaponSerialInput("");
-    setSelectedWeaponTypeId(WEAPON_TYPE_OPTIONS[0]?.id ?? "");
+    setSelectedRegisterWeaponId("");
     setSectionMode(null);
   }
 
   function removeSelectedWeapon() {
     if (!selectedAttachedWeaponId) return;
-    updatePersonRecord((current) => ({
-      ...current,
-      waffen: current.waffen.filter((item) => item.id !== selectedAttachedWeaponId),
-    }));
+    setWeaponRecords((prev) =>
+      prev.map((record) =>
+        record.id === selectedAttachedWeaponId
+          ? {
+              ...record,
+              besitzer: "Unbekannt",
+              assignedPersonAkteId: null,
+              status: "Abgemeldet",
+              linkedStrafanzeigeId: null,
+            }
+          : record
+      )
+    );
+    setSelectedAttachedWeaponId("");
     setSectionMode(null);
   }
 
   function addSelectedCharge() {
-    const template = CHARGE_OPTIONS.find((item) => item.id === selectedChargeId);
+    const template = availableChargeOptions.find((item) => item.id === effectiveSelectedChargeId);
     if (!template) return;
     updatePersonRecord((current) => {
       if (current.strafanzeigen.some((item) => item.id === template.id)) return current;
@@ -1059,6 +388,7 @@ function savePersonRecord() {
             augenfarbe: personForm.augenfarbe.trim() || "-",
             haarfarbe: personForm.haarfarbe.trim() || "-",
             geschlecht: personForm.geschlecht,
+            sicherheitsstufe: Number(personForm.sicherheitsstufe) || 0,
           },
         };
       })
@@ -1071,6 +401,18 @@ function savePersonRecord() {
         }
         if (!record.assignedPersonAkteId && (record.halter.toLowerCase() === normalizedName.toLowerCase() || record.halter.toLowerCase() === previousName.toLowerCase())) {
           return { ...record, assignedPersonAkteId: selectedRecord.id, halter: normalizedName };
+        }
+        return record;
+      })
+    );
+
+    setWeaponRecords((prev) =>
+      prev.map((record) => {
+        if (record.assignedPersonAkteId === selectedRecord.id) {
+          return { ...record, besitzer: normalizedName };
+        }
+        if (!record.assignedPersonAkteId && (record.besitzer.toLowerCase() === normalizedName.toLowerCase() || record.besitzer.toLowerCase() === previousName.toLowerCase())) {
+          return { ...record, assignedPersonAkteId: selectedRecord.id, besitzer: normalizedName, status: "Registriert" };
         }
         return record;
       })
@@ -1105,6 +447,7 @@ function savePersonRecord() {
       augenfarbe: personForm.augenfarbe.trim() || "-",
       haarfarbe: personForm.haarfarbe.trim() || "-",
       geschlecht: personForm.geschlecht,
+      sicherheitsstufe: Number(personForm.sicherheitsstufe) || 0,
       tags: ["offen"],
       lizenzen: [],
       waffen: [],
@@ -1123,6 +466,13 @@ function savePersonRecord() {
         : record
     )
   );
+  setWeaponRecords((prev) =>
+    prev.map((record) =>
+      !record.assignedPersonAkteId && record.besitzer.toLowerCase() === normalizedName.toLowerCase()
+        ? { ...record, assignedPersonAkteId: id, besitzer: normalizedName, status: "Registriert" }
+        : record
+    )
+  );
   setSelectedId(id);
   setCreateMode(null);
   setPersonForm({
@@ -1134,6 +484,7 @@ function savePersonRecord() {
     augenfarbe: "",
     haarfarbe: "",
     geschlecht: "M",
+    sicherheitsstufe: "0",
   });
 }
 
@@ -1168,7 +519,7 @@ function saveCollectionRecord() {
 
   if (createMode === "personenakte" || createMode === "personenakte-bearbeiten") {
     return (
-      <AppShell breadcrumb={createMode === "personenakte-bearbeiten" ? "Bitterhafen CopLink / Akten / Personenakte bearbeiten" : "Bitterhafen CopLink / Akten / Neue Akte"} title={createMode === "personenakte-bearbeiten" ? "Personenakte bearbeiten" : "Neue Personenakte"}>
+      <AppShell breadcrumb={createMode === "personenakte-bearbeiten" ? "Hammer Modding CopLink / Akten / Personenakte bearbeiten" : "Hammer Modding CopLink / Akten / Neue Akte"} title={createMode === "personenakte-bearbeiten" ? "Personenakte bearbeiten" : "Neue Personenakte"}>
         <div className="rounded-2xl border border-white/8 bg-black/20 p-5">
           <p className="max-w-3xl text-sm text-white/60">
 {createMode === "personenakte-bearbeiten" ? "Hier bearbeitest du die Grunddaten der bestehenden Personenakte. Spätere Register-Verknüpfungen bleiben dabei erhalten." : "V1-Prototyp: Dieses Formular legt eine neue Personenakte lokal im Frontend an. Die echte Datenbankanbindung folgt später."}
@@ -1183,9 +534,8 @@ function saveCollectionRecord() {
               ["Augenfarbe", "augenfarbe"],
               ["Haarfarbe", "haarfarbe"],
             ].map(([label, key]) => (
-              <label key={key} className="block">
-                <span className="mb-2 block text-sm font-medium text-white/70">{label}</span>
-                <input
+              <FieldBlock key={key} label={label}>
+                <FancyInput
                   type="text"
                   value={personForm[key as keyof typeof personForm] as string}
                   onChange={(event) =>
@@ -1193,26 +543,36 @@ function saveCollectionRecord() {
                   }
                   className="w-full rounded-xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none focus:border-red-400/40"
                 />
-              </label>
+              </FieldBlock>
             ))}
 
-            <label className="block">
-              <span className="mb-2 block text-sm font-medium text-white/70">Geschlecht</span>
-              <select
+            <FieldBlock label="Geschlecht">
+              <FancySelect
                 value={personForm.geschlecht}
-                onChange={(event) => setPersonForm((prev) => ({ ...prev, geschlecht: event.target.value }))}
-                className="w-full rounded-xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none focus:border-red-400/40"
-              >
-                <option value="M">M</option>
-                <option value="W">W</option>
-                <option value="D">D</option>
-              </select>
-            </label>
+                onChange={(value) => setPersonForm((prev) => ({ ...prev, geschlecht: value }))}
+                options={[
+                  { value: "M", label: "M" },
+                  { value: "W", label: "W" },
+                  { value: "D", label: "D" },
+                ]}
+              />
+            </FieldBlock>
+
+            <FieldBlock label="Sicherheitsstufe">
+              <FancySelect
+                value={personForm.sicherheitsstufe}
+                onChange={(value) => setPersonForm((prev) => ({ ...prev, sicherheitsstufe: value }))}
+                options={[0, 1, 2, 3, 4, 5].map((level) => ({
+                  value: String(level),
+                  label: `Stufe ${level}`,
+                }))}
+              />
+            </FieldBlock>
           </div>
-          <div className="mt-6 flex flex-wrap gap-3">
-            <button onClick={() => setCreateMode(null)} className="ui-btn ui-btn-ghost">Abbrechen</button>
-            <button onClick={savePersonRecord} className="ui-btn ui-btn-red">{createMode === "personenakte-bearbeiten" ? "Änderungen speichern" : "Akte speichern"}</button>
-          </div>
+          <ActionBar className="mt-6">
+            <UiButton onClick={() => setCreateMode(null)} variant="ghost">Abbrechen</UiButton>
+            <UiButton onClick={savePersonRecord} variant="red">{createMode === "personenakte-bearbeiten" ? "Änderungen speichern" : "Akte speichern"}</UiButton>
+          </ActionBar>
         </div>
       </AppShell>
     );
@@ -1220,7 +580,7 @@ function saveCollectionRecord() {
 
   if (createMode === "sammelakte") {
     return (
-      <AppShell breadcrumb="Bitterhafen CopLink / Akten / Neue Sammelakte" title="Neue Sammelakte">
+      <AppShell breadcrumb="Hammer Modding CopLink / Akten / Neue Sammelakte" title="Neue Sammelakte">
         <div className="rounded-2xl border border-white/8 bg-black/20 p-5">
           <p className="max-w-3xl text-sm text-white/60">
             Sammelakten bündeln mehrere Personen, Hinweise und Vorfälle in einer übergeordneten Akte.
@@ -1232,9 +592,8 @@ function saveCollectionRecord() {
               ["Ort / Bereich", "ort"],
               ["Federführender Officer", "federfuehrung"],
             ].map(([label, key]) => (
-              <label key={key} className="block">
-                <span className="mb-2 block text-sm font-medium text-white/70">{label}</span>
-                <input
+              <FieldBlock key={key} label={label}>
+                <FancyInput
                   type="text"
                   value={collectionForm[key as keyof typeof collectionForm] as string}
                   onChange={(event) =>
@@ -1242,21 +601,20 @@ function saveCollectionRecord() {
                   }
                   className="w-full rounded-xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none focus:border-red-400/40"
                 />
-              </label>
+              </FieldBlock>
             ))}
-            <label className="block md:col-span-2">
-              <span className="mb-2 block text-sm font-medium text-white/70">Sachverhalt / Beschreibung</span>
-              <textarea
+            <FieldBlock label="Sachverhalt / Beschreibung" className="md:col-span-2">
+              <FancyTextarea
                 value={collectionForm.beschreibung}
                 onChange={(event) => setCollectionForm((prev) => ({ ...prev, beschreibung: event.target.value }))}
                 className="min-h-[140px] w-full rounded-xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none focus:border-red-400/40"
               />
-            </label>
+            </FieldBlock>
           </div>
-          <div className="mt-6 flex flex-wrap gap-3">
-            <button onClick={() => setCreateMode(null)} className="ui-btn ui-btn-ghost">Abbrechen</button>
-            <button onClick={saveCollectionRecord} className="ui-btn ui-btn-red-alt">Sammelakte speichern</button>
-          </div>
+          <ActionBar className="mt-6">
+            <UiButton onClick={() => setCreateMode(null)} variant="ghost">Abbrechen</UiButton>
+            <UiButton onClick={saveCollectionRecord} variant="red-alt">Sammelakte speichern</UiButton>
+          </ActionBar>
         </div>
       </AppShell>
     );
@@ -1265,12 +623,12 @@ function saveCollectionRecord() {
   if (selectedEntry && selectedRecord?.kind === "personenakte" && selectedRecord.person) {
     return (
       <AppShell
-        breadcrumb="Bitterhafen CopLink / Akten / Personenakte / Eintrag"
+        breadcrumb="Hammer Modding CopLink / Akten / Personenakte / Eintrag"
         title={selectedEntry.id}
         actions={
-          <div className="flex flex-wrap gap-3">
-            <button onClick={() => setSelectedEntryId(null)} className="ui-btn ui-btn-ghost">Zurück zur Akte</button>
-          </div>
+          <ActionBar>
+            <UiButton onClick={() => setSelectedEntryId(null)} variant="ghost">Zurück zur Akte</UiButton>
+          </ActionBar>
         }
       >
         <div className="grid gap-5 lg:grid-cols-2">
@@ -1295,13 +653,13 @@ function saveCollectionRecord() {
 
     return (
       <AppShell
-        breadcrumb="Bitterhafen CopLink / Akten / Personenakte"
+        breadcrumb="Hammer Modding CopLink / Akten / Personenakte"
         title={person.vorNachname}
         actions={
-          <div className="flex flex-wrap gap-3">
-            <button onClick={() => setSelectedId(null)} className="ui-btn ui-btn-ghost">Zurück</button>
-            <button onClick={openEditPersonRecord} className="ui-btn ui-btn-red">Akte bearbeiten</button>
-          </div>
+          <ActionBar>
+            <UiButton onClick={() => setSelectedId(null)} variant="ghost">Zurück</UiButton>
+            <UiButton onClick={openEditPersonRecord} variant="red">Akte bearbeiten</UiButton>
+          </ActionBar>
         }
       >
         {person.sharedBy ? (
@@ -1348,6 +706,19 @@ function saveCollectionRecord() {
               <InfoCard label="Augenfarbe" value={person.augenfarbe} />
               <InfoCard label="Haarfarbe" value={person.haarfarbe} />
               <InfoCard label="Geschlecht" value={person.geschlecht} />
+              {selectedOfficerLink ? <InfoCard label="Status intern" value={`Beamter [${selectedOfficerLink.dienstnummer}]`} /> : null}
+              <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+                <p className="text-[11px] uppercase tracking-[0.22em] text-white/42">Sicherheitsstufe</p>
+                <div className="mt-3">
+                  <FancySelect
+                    value={String(person.sicherheitsstufe ?? 0)}
+                    onChange={(value) => updatePersonRecord((current) => ({ ...current, sicherheitsstufe: Number(value) || 0 }))}
+                    options={[0, 1, 2, 3, 4, 5].map((level) => ({ value: String(level), label: `Stufe ${level}` }))}
+                  />
+                </div>
+                <p className="mt-3 text-sm font-semibold text-white">Aktuell Stufe {person.sicherheitsstufe ?? 0}</p>
+                <p className="mt-1 text-xs text-white/45">Diese Einstufung kann später für interne Freigaben, Hinweise und Zugriffsstufen genutzt werden.</p>
+              </div>
             </div>
 
             <div className="grid gap-5 xl:grid-cols-2">
@@ -1419,27 +790,25 @@ function saveCollectionRecord() {
                   title="Waffen"
                   action={
                     <div className="flex flex-wrap gap-2">
-                      <button onClick={() => openSection("weapon")} className="ui-btn ui-btn-red">Waffe registrieren</button>
+                      <button onClick={() => openSection("weapon")} className="ui-btn ui-btn-red">Waffe zuordnen</button>
                       <button onClick={() => openSection("weapon-remove")} className="ui-btn ui-btn-ghost">Waffe abmelden</button>
                     </div>
                   }
                 />
                 {sectionMode === "weapon" ? (
                   <div className="mb-4 rounded-2xl border border-white/8 bg-black/20 p-4">
-                    <div className="grid gap-3 xl:grid-cols-[minmax(260px,1fr)_240px_auto]">
-                      <FancySelect
-                        value={selectedWeaponTypeId}
-                        onChange={setSelectedWeaponTypeId}
-                        options={WEAPON_TYPE_OPTIONS.map((weapon) => ({ value: weapon.id, label: weapon.weapon }))}
-                      />
-                      <input
-                        value={weaponSerialInput}
-                        onChange={(event) => setWeaponSerialInput(event.target.value)}
-                        placeholder="Seriennummer eingeben"
-                        className="ui-input"
-                      />
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="min-w-[280px] flex-1">
+                        <FancySelect
+                          value={selectedRegisterWeaponId}
+                          onChange={setSelectedRegisterWeaponId}
+                          options={availableRegisterWeapons.map((weapon) => ({ value: weapon.id, label: `${weapon.weapon} · ${weapon.serial}` }))}
+                          placeholder={availableRegisterWeapons.length ? 'Waffe aus Register auswählen' : 'Keine freie Waffe im Register'}
+                        />
+                      </div>
                       <button onClick={addSelectedWeapon} className="ui-btn ui-btn-red">Auswahl übernehmen</button>
                     </div>
+                    <p className="mt-3 text-sm text-white/45">Es werden nur nicht zugeordnete Waffen aus dem zentralen Waffenregister angezeigt.</p>
                   </div>
                 ) : null}
                 {sectionMode === "weapon-remove" ? (
@@ -1449,8 +818,8 @@ function saveCollectionRecord() {
                         <FancySelect
                           value={selectedAttachedWeaponId}
                           onChange={setSelectedAttachedWeaponId}
-                          options={person.waffen.map((weapon) => ({ value: weapon.id, label: `${weapon.weapon} · ${weapon.serial}` }))}
-                          placeholder={person.waffen.length ? 'Waffe auswählen' : 'Keine Waffe registriert'}
+                          options={personWeapons.map((weapon) => ({ value: weapon.id, label: `${weapon.weapon} · ${weapon.serial}` }))}
+                          placeholder={personWeapons.length ? 'Waffe auswählen' : 'Keine Waffe registriert'}
                         />
                       </div>
                       <button onClick={removeSelectedWeapon} className="ui-btn ui-btn-ghost">Auswahl entfernen</button>
@@ -1467,11 +836,11 @@ function saveCollectionRecord() {
                       </tr>
                     </thead>
                     <tbody className="bg-black/10 text-white/90">
-                      {person.waffen.length ? person.waffen.map((weapon) => (
+                      {personWeapons.length ? personWeapons.map((weapon) => (
                         <tr key={weapon.id} className="border-t border-white/6">
                           <td className="px-4 py-3">{weapon.weapon}</td>
                           <td className="px-4 py-3">{weapon.serial}</td>
-                          <td className="px-4 py-3">{weapon.status}</td>
+                          <td className="px-4 py-3"><ToneBadge text={weapon.status} tone={getWeaponStatusTone(weapon.status)} /></td>
                         </tr>
                       )) : (
                         <tr className="border-t border-white/6"><td className="px-4 py-4 text-white/45" colSpan={3}>Noch keine Waffen verknüpft</td></tr>
@@ -1514,9 +883,9 @@ function saveCollectionRecord() {
                     <div className="flex flex-wrap items-center gap-3">
                       <div className="min-w-[280px] flex-1">
                         <FancySelect
-                          value={selectedChargeId}
+                          value={effectiveSelectedChargeId}
                           onChange={setSelectedChargeId}
-                          options={CHARGE_OPTIONS.map((charge) => ({ value: charge.id, label: `${charge.taeter} · ${charge.status}` }))}
+                          options={availableChargeOptions.map((charge) => ({ value: charge.id, label: `${charge.taeter} · ${formatLinkedChargeStatus(charge.status, charge.fahndung)}` }))}
                         />
                       </div>
                       <button onClick={addSelectedCharge} className="ui-btn ui-btn-red">Auswahl übernehmen</button>
@@ -1530,7 +899,7 @@ function saveCollectionRecord() {
                         <FancySelect
                           value={selectedAttachedChargeId}
                           onChange={setSelectedAttachedChargeId}
-                          options={person.strafanzeigen.map((charge) => ({ value: charge.id, label: `${charge.taeter} · ${charge.status}` }))}
+                          options={person.strafanzeigen.map((charge) => ({ value: charge.id, label: `${charge.taeter} · ${formatLinkedChargeStatus(charge.status, charge.fahndung)}` }))}
                           placeholder={person.strafanzeigen.length ? 'Strafanzeige auswählen' : 'Keine Strafanzeige verknüpft'}
                         />
                       </div>
@@ -1546,6 +915,7 @@ function saveCollectionRecord() {
                         <th className="px-4 py-3 font-medium">Täter</th>
                         <th className="px-4 py-3 font-medium">Officer</th>
                         <th className="px-4 py-3 font-medium">Status</th>
+                        <th className="px-4 py-3 font-medium">Fahndung</th>
                       </tr>
                     </thead>
                     <tbody className="bg-black/10 text-white/90">
@@ -1555,9 +925,10 @@ function saveCollectionRecord() {
                           <td className="px-4 py-3">{charge.taeter}</td>
                           <td className="px-4 py-3">{charge.officer}</td>
                           <td className="px-4 py-3"><StatusBadge text={charge.status} /></td>
+                          <td className="px-4 py-3">{charge.fahndung ? <StatusBadge text="Gesucht" /> : <span className="text-white/40">—</span>}</td>
                         </tr>
                       )) : (
-                        <tr className="border-t border-white/6"><td className="px-4 py-4 text-white/45" colSpan={4}>Keine laufenden Strafanzeigen</td></tr>
+                        <tr className="border-t border-white/6"><td className="px-4 py-4 text-white/45" colSpan={5}>Keine laufenden Strafanzeigen</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -1666,10 +1037,10 @@ function saveCollectionRecord() {
                         { value: "Bußgelder und Normales", label: "Bußgelder und Normales" },
                       ]}
                     />
-                    <input value={entryForm.title} onChange={(event) => setEntryForm((prev) => ({ ...prev, title: event.target.value }))} placeholder="Titel" className="rounded-xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none placeholder:text-white/25" />
-                    <input value={entryForm.creator} onChange={(event) => setEntryForm((prev) => ({ ...prev, creator: event.target.value }))} placeholder="Ersteller" className="rounded-xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none placeholder:text-white/25" />
-                    <input value={entryForm.sentence} onChange={(event) => setEntryForm((prev) => ({ ...prev, sentence: event.target.value }))} placeholder="Strafe" className="rounded-xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none placeholder:text-white/25 md:col-span-2 xl:col-span-1" />
-                    <input value={entryForm.notes} onChange={(event) => setEntryForm((prev) => ({ ...prev, notes: event.target.value }))} placeholder="Sonstiges" className="rounded-xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none placeholder:text-white/25 md:col-span-2" />
+                    <FancyInput value={entryForm.title} onChange={(event) => setEntryForm((prev) => ({ ...prev, title: event.target.value }))} placeholder="Titel" className="rounded-xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none placeholder:text-white/25" />
+                    <FancyInput value={entryForm.creator} onChange={(event) => setEntryForm((prev) => ({ ...prev, creator: event.target.value }))} placeholder="Ersteller" className="rounded-xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none placeholder:text-white/25" />
+                    <FancyInput value={entryForm.sentence} onChange={(event) => setEntryForm((prev) => ({ ...prev, sentence: event.target.value }))} placeholder="Strafe" className="rounded-xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none placeholder:text-white/25 md:col-span-2 xl:col-span-1" />
+                    <FancyInput value={entryForm.notes} onChange={(event) => setEntryForm((prev) => ({ ...prev, notes: event.target.value }))} placeholder="Sonstiges" className="rounded-xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none placeholder:text-white/25 md:col-span-2" />
                   </div>
                   <div className="mt-3 flex gap-3">
                     <button onClick={() => setSectionMode(null)} className="ui-btn ui-btn-ghost">Abbrechen</button>
@@ -1721,11 +1092,11 @@ function saveCollectionRecord() {
     const collection = selectedRecord.collection;
     return (
       <AppShell
-        breadcrumb="Bitterhafen CopLink / Akten / Sammelakte"
+        breadcrumb="Hammer Modding CopLink / Akten / Sammelakte"
         title={selectedRecord.title}
         actions={
           <div className="flex flex-wrap gap-3">
-            <button onClick={() => setSelectedId(null)} className="ui-btn ui-btn-ghost">Zurück</button>
+            <UiButton onClick={() => setSelectedId(null)} variant="ghost">Zurück</UiButton>
             <button className="ui-btn ui-btn-red">Sammelakte bearbeiten</button>
           </div>
         }
@@ -1777,7 +1148,7 @@ function saveCollectionRecord() {
 
   return (
     <AppShell
-      breadcrumb="Bitterhafen CopLink / Akten"
+      breadcrumb="Hammer Modding CopLink / Akten"
       title="Akten"
       actions={
         <button className="ui-btn ui-btn-red">
@@ -1790,8 +1161,8 @@ function saveCollectionRecord() {
       </div>
 
       <div className="mt-5 flex flex-wrap gap-3">
-        <button onClick={openCreatePersonRecord} className="ui-btn ui-btn-red">Akte hinzufügen</button>
-        <button onClick={() => setCreateMode("sammelakte")} className="ui-btn ui-btn-red-alt">Sammelakte</button>
+        <UiButton onClick={openCreatePersonRecord} variant="red">Akte hinzufügen</UiButton>
+        <UiButton onClick={() => setCreateMode("sammelakte")} variant="red-alt">Sammelakte</UiButton>
       </div>
 
       <div className="mt-5 flex flex-wrap gap-2">
@@ -1817,7 +1188,7 @@ function saveCollectionRecord() {
           <span>Einträge</span>
         </div>
         <div className="md:justify-self-end md:w-[320px]">
-          <input
+          <FancyInput
             type="text"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
@@ -1861,7 +1232,7 @@ function saveCollectionRecord() {
                 <td className="px-4 py-4"><StatusBadge text={record.status} /></td>
                 <td className="px-4 py-4 text-white/65">{record.lastUpdated}</td>
                 <td className="px-4 py-4">
-                  <button onClick={() => setSelectedId(record.id)} className="ui-btn ui-btn-inline">Öffnen</button>
+                  <UiButton onClick={() => setSelectedId(record.id)} variant="inline">Öffnen</UiButton>
                 </td>
               </tr>
             )) : (
@@ -1987,7 +1358,7 @@ function KfzRegisterApp() {
   if (mode) {
     return (
       <AppShell
-        breadcrumb={`Bitterhafen CopLink / KFZ-Register / ${mode === "create" ? "Fahrzeug registrieren" : "Fahrzeug bearbeiten"}`}
+        breadcrumb={`Hammer Modding CopLink / KFZ-Register / ${mode === "create" ? "Fahrzeug registrieren" : "Fahrzeug bearbeiten"}`}
         title={mode === "create" ? "Fahrzeug registrieren" : `Fahrzeug ${selectedRecord?.kennzeichen ?? "bearbeiten"}`}
       >
         <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-5">
@@ -2000,7 +1371,7 @@ function KfzRegisterApp() {
           <div className="grid gap-5 lg:grid-cols-2">
             <div>
               <label className="mb-2 block text-sm text-white/60">Kennzeichen</label>
-              <input
+              <FancyInput
                 value={form.kennzeichen}
                 onChange={(event) => setForm((current) => ({ ...current, kennzeichen: event.target.value.toUpperCase() }))}
                 className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none transition focus:border-red-400/40"
@@ -2025,7 +1396,7 @@ function KfzRegisterApp() {
             </div>
             <div>
               <label className="mb-2 block text-sm text-white/60">HU / TÜV Ablaufdatum</label>
-              <input
+              <FancyInput
                 type="date"
                 value={form.huAblauf}
                 onChange={(event) => setForm((current) => ({ ...current, huAblauf: event.target.value }))}
@@ -2044,7 +1415,7 @@ function KfzRegisterApp() {
 
           <div className="mt-5">
             <label className="mb-2 block text-sm text-white/60">Vermerk / Hinweis</label>
-            <textarea
+            <FancyTextarea
               value={form.notiz}
               onChange={(event) => setForm((current) => ({ ...current, notiz: event.target.value }))}
               className="min-h-[140px] w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none transition focus:border-red-400/40"
@@ -2053,8 +1424,8 @@ function KfzRegisterApp() {
           </div>
 
           <div className="mt-6 flex flex-wrap gap-3">
-            <button onClick={() => setMode(null)} className="ui-btn ui-btn-ghost">Abbrechen</button>
-            <button onClick={saveRecord} className="ui-btn ui-btn-red">{mode === "create" ? "Fahrzeug registrieren" : "Änderungen speichern"}</button>
+            <UiButton onClick={() => setMode(null)} variant="ghost">Abbrechen</UiButton>
+            <UiButton onClick={saveRecord} variant="red">{mode === "create" ? "Fahrzeug registrieren" : "Änderungen speichern"}</UiButton>
           </div>
         </div>
       </AppShell>
@@ -2064,11 +1435,11 @@ function KfzRegisterApp() {
   if (selectedRecord) {
     return (
       <AppShell
-        breadcrumb="Bitterhafen CopLink / KFZ-Register / Fahrzeugdetail"
+        breadcrumb="Hammer Modding CopLink / KFZ-Register / Fahrzeugdetail"
         title={`Fahrzeug ${selectedRecord.kennzeichen}`}
         actions={
           <div className="flex flex-wrap gap-3">
-            <button onClick={() => setSelectedId(null)} className="ui-btn ui-btn-ghost">Zurück</button>
+            <UiButton onClick={() => setSelectedId(null)} variant="ghost">Zurück</UiButton>
             <button onClick={() => openEdit(selectedRecord)} className="ui-btn ui-btn-red">Fahrzeug bearbeiten</button>
           </div>
         }
@@ -2081,13 +1452,13 @@ function KfzRegisterApp() {
           <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
             <p className="text-xs uppercase tracking-[0.22em] text-white/38">HU / TÜV</p>
             <div className="mt-3">
-              <KfzToneBadge text={formatHuDisplay(selectedRecord)} tone={getHuTone(selectedRecord)} />
+              <ToneBadge text={formatHuDisplay(selectedRecord)} tone={getHuTone(selectedRecord)} />
             </div>
           </div>
           <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
             <p className="text-xs uppercase tracking-[0.22em] text-white/38">Versicherung</p>
             <div className="mt-3">
-              <KfzToneBadge text={selectedRecord.versicherung} tone={getInsuranceTone(selectedRecord.versicherung)} />
+              <ToneBadge text={selectedRecord.versicherung} tone={getInsuranceTone(selectedRecord.versicherung)} />
             </div>
           </div>
           <InfoCard label="Status" value={selectedRecord.status} />
@@ -2098,7 +1469,7 @@ function KfzRegisterApp() {
           <p className="max-w-4xl leading-7 text-white/72">{selectedRecord.notiz}</p>
           <div className="mt-4 flex flex-wrap gap-2">
             <StatusBadge text={selectedRecord.status} />
-            <KfzToneBadge text={selectedRecord.versicherung} tone={getInsuranceTone(selectedRecord.versicherung)} />
+            <ToneBadge text={selectedRecord.versicherung} tone={getInsuranceTone(selectedRecord.versicherung)} />
           </div>
         </div>
       </AppShell>
@@ -2107,7 +1478,7 @@ function KfzRegisterApp() {
 
   return (
     <AppShell
-      breadcrumb="Bitterhafen CopLink / KFZ-Register"
+      breadcrumb="Hammer Modding CopLink / KFZ-Register"
       title="Kraftfahrzeug Register"
       actions={<button onClick={openCreate} className="ui-btn ui-btn-red">Fahrzeug registrieren</button>}
     >
@@ -2122,7 +1493,7 @@ function KfzRegisterApp() {
           <span>Einträge</span>
         </div>
         <div className="md:justify-self-end md:w-[320px]">
-          <input
+          <FancyInput
             type="text"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
@@ -2163,23 +1534,21 @@ function KfzRegisterApp() {
                 <td className="px-4 py-4">{record.modell}</td>
                 <td className="px-4 py-4">{record.halter}</td>
                 <td className="px-4 py-4">
-                  <KfzToneBadge text={formatHuDisplay(record)} tone={getHuTone(record)} />
+                  <ToneBadge text={formatHuDisplay(record)} tone={getHuTone(record)} />
                 </td>
                 <td className="px-4 py-4">
-                  <KfzToneBadge text={record.versicherung} tone={getInsuranceTone(record.versicherung)} />
+                  <ToneBadge text={record.versicherung} tone={getInsuranceTone(record.versicherung)} />
                 </td>
                 <td className="px-4 py-4"><StatusBadge text={record.status} /></td>
                 <td className="px-4 py-4">
                   <div className="flex gap-2">
-                    <button onClick={() => setSelectedId(record.id)} className="ui-btn ui-btn-inline">Anzeigen</button>
-                    <button onClick={() => { setSelectedId(record.id); openEdit(record); }} className="ui-btn ui-btn-inline">Bearbeiten</button>
-                    <button onClick={() => unregisterRecord(record.id)} className="ui-btn ui-btn-ghost">Abmelden</button>
+                    <UiButton onClick={() => setSelectedId(record.id)} variant="inline">Anzeigen</UiButton>
+                    <UiButton onClick={() => { setSelectedId(record.id); openEdit(record); }} variant="inline">Bearbeiten</UiButton>
+                    <UiButton onClick={() => unregisterRecord(record.id)} variant="ghost">Abmelden</UiButton>
                   </div>
                 </td>
                 <td className="px-4 py-4">
-                  <span className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${getOwnerRegistrationTone(record)}`}>
-                    {getOwnerRegistrationLabel(record)}
-                  </span>
+                  <ToneBadge text={getOwnerRegistrationLabel(record)} tone={getOwnerRegistrationTone(record)} />
                 </td>
               </tr>
             )) : (
@@ -2188,6 +1557,1219 @@ function KfzRegisterApp() {
           </tbody>
         </table>
       </div>
+    </AppShell>
+  );
+}
+
+
+function WeaponsRegisterApp() {
+  const {
+    aktenRecords,
+    strafanzeigenRecords,
+    weaponRecords: records,
+    setWeaponRecords: setRecords,
+    asservatenSchraenke,
+    asservatenItems,
+    setAsservatenItems,
+  } = useContext(RecordsContext);
+  const openQuickApp = useContext(QuickOpenContext);
+  const [search, setSearch] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [mode, setMode] = useState<null | "create" | "edit">(null);
+  const [form, setForm] = useState<WeaponFormState>(getInitialWeaponForm());
+
+  const selectedRecord = useMemo(
+    () => records.find((record) => record.id === selectedId) ?? null,
+    [records, selectedId]
+  );
+
+  const ownerOptions = useMemo(() => {
+    const personNames = aktenRecords
+      .filter((record) => record.kind === "personenakte")
+      .map((record) => record.person?.vorNachname ?? record.title)
+      .filter(Boolean);
+    return ["Unbekannt", ...personNames];
+  }, [aktenRecords]);
+
+  const visibleRecords = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return records;
+    return records.filter((record) =>
+      [record.weapon, record.serial, record.besitzer, record.status, record.registriertAm, record.notiz, record.linkedStrafanzeigeId ?? ""]
+        .join(" ")
+        .toLowerCase()
+        .includes(query)
+    );
+  }, [records, search]);
+
+  const weaponOptions = WEAPON_CATALOG_OPTIONS.map((weapon) => ({ value: weapon.id, label: weapon.weapon }));
+  const ownerSelectOptions = ownerOptions.map((owner) => ({ value: owner, label: owner }));
+  const statusSelectOptions = WEAPON_STATUS_OPTIONS.map((status) => ({ value: status, label: status }));
+
+  const linkedAnzeigeOptions = useMemo(() => {
+    const relevant = strafanzeigenRecords.filter(
+      (record) => record.status !== "Abgeschlossen" || record.id === form.linkedStrafanzeigeId
+    );
+
+    return relevant.map((record) => ({
+      value: record.id,
+      label: `${record.id} · ${record.taeter} · ${getStrafanzeigeStatusMeta(record.status).label}`,
+    }));
+  }, [strafanzeigenRecords, form.linkedStrafanzeigeId]);
+
+  const linkedAnzeigeRecord = useMemo(() => {
+    if (!selectedRecord?.linkedStrafanzeigeId) return null;
+    return strafanzeigenRecords.find((record) => record.id === selectedRecord.linkedStrafanzeigeId) ?? null;
+  }, [selectedRecord, strafanzeigenRecords]);
+  const weaponStorageLookup = useMemo(() => {
+    return Object.fromEntries(
+      asservatenItems
+        .filter((item) => item.weaponRecordId)
+        .map((item) => [item.weaponRecordId as string, item])
+    ) as Record<string, AsservatenItemRecord>;
+  }, [asservatenItems]);
+
+  const schrankLookup = useMemo(() => {
+    return Object.fromEntries(asservatenSchraenke.map((schrank) => [schrank.id, schrank]));
+  }, [asservatenSchraenke]);
+
+  const selectedRecordStorage = selectedRecord ? weaponStorageLookup[selectedRecord.id] ?? null : null;
+  const selectedRecordSchrank = selectedRecordStorage ? schrankLookup[selectedRecordStorage.schrankId] ?? null : null;
+
+
+  function findMatchingAkteIdByName(name: string) {
+    const normalized = name.trim().toLowerCase();
+    if (!normalized || normalized === "unbekannt") return null;
+    const match = aktenRecords.find(
+      (record) => record.kind === "personenakte" && record.person?.vorNachname.toLowerCase() === normalized
+    );
+    return match?.id ?? null;
+  }
+
+  function resolveWeaponStatus(owner: string, preferredStatus?: WeaponStatus): WeaponStatus {
+    if (preferredStatus === "Beschlagnahmt") return "Beschlagnahmt";
+    return owner !== "Unbekannt" ? "Registriert" : "Abgemeldet";
+  }
+
+  function updateOwner(owner: string) {
+    setForm((current) => ({
+      ...current,
+      besitzer: owner,
+      status: resolveWeaponStatus(owner, current.status),
+    }));
+  }
+
+  function updateStatus(nextStatus: WeaponStatus) {
+    setForm((current) => ({
+      ...current,
+      status: resolveWeaponStatus(current.besitzer, nextStatus),
+      linkedStrafanzeigeId: nextStatus === "Beschlagnahmt" ? current.linkedStrafanzeigeId : "",
+    }));
+  }
+
+  const selectedWeaponOption = WEAPON_CATALOG_OPTIONS.find((option) => option.id === form.weaponId) ?? WEAPON_CATALOG_OPTIONS[0];
+
+  function openCreate() {
+    setMode("create");
+    setSelectedId(null);
+    setForm(getInitialWeaponForm());
+  }
+
+  function openEdit(record: WeaponRecord) {
+    setMode("edit");
+    setSelectedId(record.id);
+    setForm({
+      weaponId: record.weaponId,
+      serial: record.serial,
+      besitzer: record.besitzer,
+      status: record.status,
+      registriertAm: record.registriertAm,
+      notiz: record.notiz,
+      linkedStrafanzeigeId: record.linkedStrafanzeigeId ?? "",
+    });
+  }
+
+  function saveRecord() {
+    if (!form.serial.trim() || !selectedWeaponOption) return;
+
+    const normalizedOwner = form.besitzer.trim() || "Unbekannt";
+    const assignedPersonAkteId = findMatchingAkteIdByName(normalizedOwner);
+    const payload: WeaponRecord = {
+      id: mode === "edit" && selectedRecord ? selectedRecord.id : `wr-${Date.now()}`,
+      weaponId: selectedWeaponOption.id,
+      weapon: selectedWeaponOption.weapon,
+      serial: form.serial.trim().toUpperCase(),
+      besitzer: assignedPersonAkteId ? normalizedOwner : "Unbekannt",
+      assignedPersonAkteId,
+      status: form.status === "Beschlagnahmt" ? "Beschlagnahmt" : assignedPersonAkteId ? "Registriert" : "Abgemeldet",
+      registriertAm: form.registriertAm || new Date().toISOString().slice(0, 10),
+      notiz: form.notiz.trim() || "Kein zusätzlicher Vermerk hinterlegt.",
+      linkedStrafanzeigeId: form.status === "Beschlagnahmt" ? form.linkedStrafanzeigeId || null : null,
+    };
+
+    setRecords((prev) => {
+      if (mode === "edit" && selectedRecord) {
+        return prev.map((record) => (record.id === selectedRecord.id ? payload : record));
+      }
+      return [payload, ...prev];
+    });
+
+    if (payload.status !== "Beschlagnahmt") {
+      setAsservatenItems((prev) => prev.filter((item) => item.weaponRecordId !== payload.id));
+    }
+
+    setSelectedId(payload.id);
+    setMode(null);
+  }
+
+  function unregisterRecord(recordId: string) {
+    setRecords((prev) =>
+      prev.map((record) =>
+        record.id === recordId
+          ? {
+              ...record,
+              besitzer: "Unbekannt",
+              assignedPersonAkteId: null,
+              status: "Abgemeldet",
+              linkedStrafanzeigeId: null,
+            }
+          : record
+      )
+    );
+    setAsservatenItems((prev) => prev.filter((item) => item.weaponRecordId !== recordId));
+  }
+
+  if (mode) {
+    return (
+      <AppShell
+        breadcrumb={`Hammer Modding CopLink / Waffenregister / ${mode === "create" ? "Waffe registrieren" : "Waffe bearbeiten"}`}
+        title={mode === "create" ? "Waffe registrieren" : `Waffe ${selectedRecord?.serial ?? "bearbeiten"}`}
+      >
+        <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-5">
+          <p className="mb-5 text-sm text-white/55">
+            {mode === "create"
+              ? "Registriere hier eine Waffe im zentralen Waffenregister. Besitzer werden direkt mit Personenakten verknüpft."
+              : "Bearbeite hier die hinterlegten Waffendaten. Status und Besitzer steuern die Verknüpfung zur Personenakte automatisch."}
+          </p>
+
+          <div className="grid gap-5 lg:grid-cols-2">
+            <FieldBlock label="Waffe">
+              <FancySelect value={form.weaponId} onChange={(value) => setForm((current) => ({ ...current, weaponId: value }))} options={weaponOptions} placeholder="Waffe auswählen" />
+            </FieldBlock>
+            <FieldBlock label="Seriennummer">
+              <FancyInput
+                value={form.serial}
+                onChange={(event) => setForm((current) => ({ ...current, serial: event.target.value.toUpperCase() }))}
+                className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none transition focus:border-red-400/40"
+                placeholder="z. B. PDW-22019"
+              />
+            </FieldBlock>
+            <FieldBlock label="Besitzer">
+              <FancySelect value={form.besitzer} onChange={updateOwner} options={ownerSelectOptions} placeholder="Besitzer auswählen" />
+            </FieldBlock>
+            <FieldBlock label="Status">
+              <FancySelect value={form.status} onChange={(value) => updateStatus(value as WeaponStatus)} options={statusSelectOptions} placeholder="Status auswählen" />
+            </FieldBlock>
+            <FieldBlock label="Registriert am">
+              <FancyInput
+                type="date"
+                value={form.registriertAm}
+                onChange={(event) => setForm((current) => ({ ...current, registriertAm: event.target.value }))}
+                className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none transition focus:border-red-400/40"
+              />
+            </FieldBlock>
+            <div className="rounded-2xl border border-white/8 bg-black/18 p-4">
+              <p className="text-xs uppercase tracking-[0.22em] text-white/38">Automatik</p>
+              <p className="mt-3 text-sm leading-6 text-white/70">
+                Besitzer gesetzt = Registriert. Besitzer leer = Abgemeldet. Beschlagnahmt bleibt mit dem Besitzer verknüpft und markiert nur den aktuellen Zustand der Waffe.
+              </p>
+            </div>
+            {form.status === "Beschlagnahmt" ? (
+              <FieldBlock label="Verknüpfte Strafanzeige" className="lg:col-span-2">
+                <FancySelect
+                  value={form.linkedStrafanzeigeId}
+                  onChange={(value) => setForm((current) => ({ ...current, linkedStrafanzeigeId: value }))}
+                  options={linkedAnzeigeOptions}
+                  placeholder="Strafanzeige auswählen"
+                />
+              </FieldBlock>
+            ) : null}
+            <FieldBlock label="Notiz" className="lg:col-span-2">
+              <FancyTextarea
+                value={form.notiz}
+                onChange={(event) => setForm((current) => ({ ...current, notiz: event.target.value }))}
+                className="min-h-[140px] w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-4 text-sm text-white outline-none transition placeholder:text-white/25 focus:border-red-400/40"
+                placeholder="Optionaler Vermerk, z. B. Sicherstellung, Prüfung oder Beschlagnahmung ..."
+              />
+            </FieldBlock>
+          </div>
+
+          <div className="mt-6 flex flex-wrap gap-3">
+            <UiButton onClick={() => setMode(null)} variant="ghost">Abbrechen</UiButton>
+            <UiButton onClick={saveRecord} variant={mode === "create" ? "green" : "red"}>{mode === "create" ? "Waffe registrieren" : "Änderungen speichern"}</UiButton>
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (selectedRecord) {
+    return (
+      <AppShell
+        breadcrumb="Hammer Modding CopLink / Waffenregister / Waffendetail"
+        title={`Waffe ${selectedRecord.serial}`}
+        actions={
+          <div className="flex flex-wrap gap-3">
+            <UiButton onClick={() => setSelectedId(null)} variant="ghost">Zurück</UiButton>
+            <UiButton onClick={() => openEdit(selectedRecord)} variant="red">Waffe bearbeiten</UiButton>
+          </div>
+        }
+      >
+        <div className="grid gap-5 lg:grid-cols-4">
+          <InfoCard label="Waffe" value={selectedRecord.weapon} />
+          <InfoCard label="Seriennummer" value={selectedRecord.serial} />
+          <InfoCard label="Besitzer" value={selectedRecord.besitzer} />
+          <InfoCard label="Registriert am" value={selectedRecord.registriertAm || "-"} />
+          <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+            <p className="text-xs uppercase tracking-[0.22em] text-white/38">Status</p>
+            <div className="mt-3">
+              <ToneBadge text={selectedRecord.status} tone={getWeaponStatusTone(selectedRecord.status)} />
+            </div>
+          </div>
+          <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+            <p className="text-xs uppercase tracking-[0.22em] text-white/38">Anmeldung</p>
+            <div className="mt-3">
+              <ToneBadge text={getWeaponRegistrationLabel(selectedRecord)} tone={getWeaponRegistrationTone(selectedRecord)} />
+            </div>
+          </div>
+          <InfoCard
+            label="Verknüpfte Strafanzeige"
+            value={
+              linkedAnzeigeRecord
+                ? `${linkedAnzeigeRecord.id} · ${linkedAnzeigeRecord.taeter}`
+                : selectedRecord.linkedStrafanzeigeId || "-"
+            }
+          />
+          <InfoCard
+            label="Lagerort"
+            value={
+              selectedRecordSchrank
+                ? `Asservatenkammer · ${selectedRecordSchrank.name}`
+                : selectedRecord.status === "Beschlagnahmt"
+                  ? "Asservatenkammer · Noch nicht zugeordnet"
+                  : "Nicht eingelagert"
+            }
+          />
+        </div>
+
+        <div className="mt-5 rounded-2xl border border-white/8 bg-white/[0.03] p-5">
+          <SectionTitle title="Waffenstatus" />
+          <p className="max-w-4xl leading-7 text-white/72">
+            Diese Waffe wird zentral im Waffenregister geführt. Änderungen an Besitzer oder Status wirken sich direkt auf die Verknüpfung zur Personenakte aus.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <ToneBadge text={selectedRecord.status} tone={getWeaponStatusTone(selectedRecord.status)} />
+            <ToneBadge text={getWeaponRegistrationLabel(selectedRecord)} tone={getWeaponRegistrationTone(selectedRecord)} />
+            {linkedAnzeigeRecord ? <ToneBadge text={`Verknüpft mit ${linkedAnzeigeRecord.id}`} tone="red" /> : null}
+            {selectedRecordSchrank ? <ToneBadge text={`Eingelagert in ${selectedRecordSchrank.name}`} tone="cyan" /> : null}
+            {selectedRecord.status === "Beschlagnahmt" && !selectedRecordSchrank ? <ToneBadge text="Noch nicht zugeordnet" tone="yellow" /> : null}
+          </div>
+          {selectedRecordSchrank ? (
+            <div className="mt-5 rounded-2xl border border-cyan-400/15 bg-cyan-500/8 p-4">
+              <p className="text-xs uppercase tracking-[0.2em] text-cyan-200/70">Asservatenkammer</p>
+              <p className="mt-2 text-sm leading-6 text-cyan-50/90">
+                Diese Waffe liegt aktuell in <span className="font-semibold text-white">{selectedRecordSchrank.name}</span>.
+                {selectedRecordStorage?.storedAt ? ` Eingelagert am ${selectedRecordStorage.storedAt}.` : ""}
+              </p>
+              <div className="mt-4">
+                <UiButton onClick={() => openQuickApp("asservatenkammer")} variant="ghost">Asservatenkammer öffnen</UiButton>
+              </div>
+            </div>
+          ) : selectedRecord.status === "Beschlagnahmt" ? (
+            <div className="mt-5 rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4">
+              <p className="text-xs uppercase tracking-[0.2em] text-amber-200/70">Asservatenkammer</p>
+              <p className="mt-2 text-sm leading-6 text-amber-50/90">
+                Diese Waffe wurde bereits beschlagnahmt, ist aber aktuell noch keinem Schrank zugeordnet.
+              </p>
+              <div className="mt-4">
+                <UiButton onClick={() => openQuickApp("asservatenkammer")} variant="ghost">Asservatenkammer öffnen</UiButton>
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="mt-5 rounded-2xl border border-white/8 bg-white/[0.03] p-5">
+          <SectionTitle title="Notiz" />
+          <p className="max-w-4xl whitespace-pre-wrap leading-7 text-white/72">
+            {selectedRecord.notiz || "Kein zusätzlicher Vermerk hinterlegt."}
+          </p>
+        </div>
+
+        {linkedAnzeigeRecord ? (
+          <div className="mt-5 rounded-2xl border border-white/8 bg-white/[0.03] p-5">
+            <SectionTitle title="Verknüpfte Strafanzeige" />
+            <p className="max-w-4xl leading-7 text-white/72">
+              Diese Waffe ist aktuell mit der Strafanzeige <span className="font-semibold text-white">{linkedAnzeigeRecord.id}</span> verknüpft.
+              Fallbezug: <span className="font-semibold text-white">{linkedAnzeigeRecord.taeter}</span> · Status <span className="font-semibold text-white">{linkedAnzeigeRecord.status}</span>.
+            </p>
+          </div>
+        ) : null}
+      </AppShell>
+    );
+  }
+
+  return (
+    <AppShell
+      breadcrumb="Hammer Modding CopLink / Waffenregister"
+      title="Waffenregister"
+      actions={<UiButton onClick={openCreate} variant="green">Waffe registrieren</UiButton>}
+    >
+      <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4 text-sm text-white/60">
+        Waffenregister V1 verwaltet Waffen zentral. Jede Waffe bleibt als eigener Datensatz erhalten und kann auf Personenakten angemeldet, abgemeldet oder als beschlagnahmt geführt werden.
+      </div>
+
+      <div className="mt-5 grid gap-4 md:grid-cols-[180px_1fr]">
+        <div className="flex items-center gap-3 text-sm text-white/60">
+          <span>Show</span>
+          <div className="rounded-xl border border-white/10 bg-black/20 px-4 py-2 text-white">{visibleRecords.length}</div>
+          <span>Einträge</span>
+        </div>
+        <div className="md:justify-self-end md:w-[320px]">
+          <FancyInput
+            type="text"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Waffe, Seriennummer oder Besitzer suchen..."
+            className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none transition placeholder:text-white/25 focus:border-red-400/40"
+          />
+        </div>
+      </div>
+
+      <div className="mt-5 overflow-hidden rounded-2xl border border-white/8">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-white/[0.05] text-white/55">
+            <tr>
+              <th className="px-4 py-4 font-medium">Waffe</th>
+              <th className="px-4 py-4 font-medium">Seriennummer</th>
+              <th className="px-4 py-4 font-medium">Besitzer</th>
+              <th className="px-4 py-4 font-medium">Status</th>
+              <th className="px-4 py-4 font-medium">Registriert am</th>
+              <th className="px-4 py-4 font-medium">Lagerort</th>
+              <th className="px-4 py-4 font-medium">Aktion</th>
+              <th className="px-4 py-4 font-medium">Anmeldung</th>
+            </tr>
+          </thead>
+          <tbody className="bg-black/15 text-white/90">
+            {visibleRecords.length ? visibleRecords.map((record) => (
+              <tr key={record.id} className="border-t border-white/6">
+                <td className="px-4 py-4">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedId(record.id)}
+                    className="record-link text-left font-semibold text-white transition hover:text-red-200 hover:underline hover:underline-offset-4"
+                  >
+                    {record.weapon}
+                  </button>
+                </td>
+                <td className="px-4 py-4">{record.serial}</td>
+                <td className="px-4 py-4">{record.besitzer}</td>
+                <td className="px-4 py-4"><ToneBadge text={record.status} tone={getWeaponStatusTone(record.status)} /></td>
+                <td className="px-4 py-4">{record.registriertAm || "-"}</td>
+                <td className="px-4 py-4">
+                  {weaponStorageLookup[record.id] ? (
+                    <span className="text-sm text-cyan-200">{schrankLookup[weaponStorageLookup[record.id].schrankId]?.name ?? "Asservatenkammer"}</span>
+                  ) : record.status === "Beschlagnahmt" ? (
+                    <span className="text-sm text-amber-200/90">Noch nicht zugeordnet</span>
+                  ) : (
+                    <span className="text-sm text-white/38">-</span>
+                  )}
+                </td>
+                <td className="px-4 py-4">
+                  <div className="flex gap-2">
+                    <UiButton onClick={() => setSelectedId(record.id)} variant="ghost">Anzeigen</UiButton>
+                    <UiButton onClick={() => openEdit(record)} variant="ghost">Bearbeiten</UiButton>
+                    <UiButton onClick={() => unregisterRecord(record.id)} variant="ghost">Abmelden</UiButton>
+                  </div>
+                </td>
+                <td className="px-4 py-4">
+                  <ToneBadge text={getWeaponRegistrationLabel(record)} tone={getWeaponRegistrationTone(record)} />
+                </td>
+              </tr>
+            )) : (
+              <tr className="border-t border-white/6"><td className="px-4 py-5 text-white/45" colSpan={8}>Keine Waffen für diese Suche gefunden</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </AppShell>
+  );
+}
+
+
+function AsservatenkammerApp() {
+  const {
+    asservatenSchraenke,
+    setAsservatenSchraenke,
+    asservatenItems,
+    setAsservatenItems,
+    weaponRecords,
+    setWeaponRecords,
+    strafanzeigenRecords,
+  } = useContext(RecordsContext);
+  const [selectedSchrankId, setSelectedSchrankId] = useState<string | null>(null);
+  const [schrankMode, setSchrankMode] = useState<null | "create" | "rename">(null);
+  const [editingSchrankId, setEditingSchrankId] = useState<string | null>(null);
+  const [itemMode, setItemMode] = useState(false);
+  const [schrankForm, setSchrankForm] = useState({ name: "", notiz: "" });
+  const [schrankFeedback, setSchrankFeedback] = useState<null | { tone: "success" | "error"; text: string }>(null);
+  const [itemForm, setItemForm] = useState<{
+    asservatId: string;
+    category: AsservatenItemCategory;
+    label: string;
+    weaponRecordId: string;
+    linkedStrafanzeigeId: string;
+    notiz: string;
+  }>({
+    asservatId: "",
+    category: "Elektronik",
+    label: "",
+    weaponRecordId: "",
+    linkedStrafanzeigeId: "",
+    notiz: "",
+  });
+  const [assigningWeaponId, setAssigningWeaponId] = useState<string | null>(null);
+  const [assignmentForm, setAssignmentForm] = useState({ schrankId: "", notiz: "" });
+  const [movingItemId, setMovingItemId] = useState<string | null>(null);
+  const [moveItemForm, setMoveItemForm] = useState({ schrankId: "", notiz: "" });
+
+  const selectedSchrank = useMemo(
+    () => asservatenSchraenke.find((schrank) => schrank.id === selectedSchrankId) ?? null,
+    [asservatenSchraenke, selectedSchrankId]
+  );
+
+  const editingSchrank = useMemo(
+    () => (editingSchrankId ? asservatenSchraenke.find((schrank) => schrank.id === editingSchrankId) ?? null : null),
+    [asservatenSchraenke, editingSchrankId]
+  );
+
+  const storedWeaponIdSet = useMemo(
+    () => new Set(asservatenItems.map((item) => item.weaponRecordId).filter(Boolean) as string[]),
+    [asservatenItems]
+  );
+
+  const schrankLookup = useMemo(() => {
+    return Object.fromEntries(asservatenSchraenke.map((schrank) => [schrank.id, schrank]));
+  }, [asservatenSchraenke]);
+
+  const unassignedConfiscatedWeapons = useMemo(() => {
+    return weaponRecords.filter((record) => record.status === "Beschlagnahmt" && !storedWeaponIdSet.has(record.id));
+  }, [weaponRecords, storedWeaponIdSet]);
+
+  const linkedAnzeigeOptions = useMemo(
+    () => [{ value: "", label: "Optional auswählen" }, ...strafanzeigenRecords.map((record) => ({ value: record.id, label: `${record.id} · ${record.taeter}` }))],
+    [strafanzeigenRecords]
+  );
+
+  const schrankSelectOptions = useMemo(
+    () => asservatenSchraenke.map((schrank) => ({ value: schrank.id, label: schrank.name })),
+    [asservatenSchraenke]
+  );
+
+  const asservatSelectOptions = useMemo(
+    () => [{ value: "", label: "Gegenstand auswählen" }, ...ASSERVAT_OPTIONS.map((entry) => ({ value: entry.id, label: entry.label }))],
+    []
+  );
+
+  const selectedItemOption = useMemo(
+    () => ASSERVAT_OPTIONS.find((entry) => entry.id === itemForm.asservatId) ?? null,
+    [itemForm.asservatId]
+  );
+
+  const manualWeaponSerialOptions = useMemo(() => {
+    if (!selectedItemOption || selectedItemOption.category !== "Waffe") return [] as Array<{ value: string; label: string }>;
+
+    const requiredWeaponId = selectedItemOption.id.replace("weapon-", "");
+
+    return weaponRecords
+      .filter((record) => record.weaponId === requiredWeaponId && record.status !== "Abgemeldet" && !storedWeaponIdSet.has(record.id))
+      .map((record) => ({ value: record.id, label: `${record.serial} · ${record.besitzer}` }));
+  }, [selectedItemOption, weaponRecords, storedWeaponIdSet]);
+
+  const selectedManualWeapon = useMemo(
+    () => weaponRecords.find((record) => record.id === itemForm.weaponRecordId) ?? null,
+    [itemForm.weaponRecordId, weaponRecords]
+  );
+
+  const schrankItems = useMemo(() => {
+    if (!selectedSchrankId) return [] as AsservatenItemRecord[];
+    return asservatenItems.filter((item) => item.schrankId === selectedSchrankId);
+  }, [asservatenItems, selectedSchrankId]);
+
+  const movingItem = useMemo(
+    () => (movingItemId ? asservatenItems.find((item) => item.id === movingItemId) ?? null : null),
+    [asservatenItems, movingItemId]
+  );
+
+  const moveTargetSchrankOptions = useMemo(
+    () => schrankSelectOptions.filter((option) => option.value !== (movingItem?.schrankId ?? selectedSchrankId ?? "")),
+    [schrankSelectOptions, movingItem?.schrankId, selectedSchrankId]
+  );
+
+  function resetSchrankForm() {
+    setSchrankForm({ name: "", notiz: "" });
+  }
+
+  function closeSchrankEditor() {
+    setSchrankMode(null);
+    setEditingSchrankId(null);
+    resetSchrankForm();
+  }
+
+  function resetItemForm() {
+    setItemForm({
+      asservatId: "",
+      category: "Elektronik",
+      label: "",
+      weaponRecordId: "",
+      linkedStrafanzeigeId: "",
+      notiz: "",
+    });
+  }
+
+  function updateItemAsservat(asservatId: string) {
+    const selectedOption = ASSERVAT_OPTIONS.find((entry) => entry.id === asservatId) ?? null;
+
+    const nextCategory: AsservatenItemCategory = selectedOption?.category === "Waffe"
+      ? "Waffe"
+      : selectedOption?.category === "Sonstiges"
+        ? "Sonstiges"
+        : "Elektronik";
+
+    setItemForm((current) => ({
+      ...current,
+      asservatId,
+      category: nextCategory,
+      label: selectedOption?.label ?? "",
+      weaponRecordId: selectedOption?.category === "Waffe" ? current.weaponRecordId : "",
+    }));
+  }
+
+  function resetAssignmentForm(preferredWeaponId?: string) {
+    setAssigningWeaponId(preferredWeaponId ?? null);
+    setAssignmentForm({
+      schrankId: asservatenSchraenke[0]?.id ?? "",
+      notiz: "",
+    });
+  }
+
+  function resetMoveItemForm(preferredItemId?: string) {
+    const preferredItem = preferredItemId
+      ? asservatenItems.find((item) => item.id === preferredItemId) ?? null
+      : null;
+    const fallbackCurrentSchrankId = preferredItem?.schrankId ?? selectedSchrankId ?? "";
+    const nextTarget = asservatenSchraenke.find((schrank) => schrank.id !== fallbackCurrentSchrankId)?.id ?? "";
+
+    setMovingItemId(preferredItemId ?? null);
+    setMoveItemForm({
+      schrankId: nextTarget,
+      notiz: "",
+    });
+  }
+
+  function openCreateSchrank() {
+    setSchrankFeedback(null);
+    setSchrankMode("create");
+    setEditingSchrankId(null);
+    resetSchrankForm();
+  }
+
+  function openRenameSchrank(target: AsservatenSchrankRecord) {
+    setSchrankFeedback(null);
+    setSchrankMode("rename");
+    setEditingSchrankId(target.id);
+    setSchrankForm({
+      name: target.name,
+      notiz: target.notiz === "Kein zusätzlicher Vermerk hinterlegt." ? "" : target.notiz,
+    });
+  }
+
+  function saveSchrank() {
+    const name = schrankForm.name.trim();
+    if (!name) return;
+
+    if (schrankMode === "rename" && editingSchrankId) {
+      const nextNote = schrankForm.notiz.trim() || "Kein zusätzlicher Vermerk hinterlegt.";
+      setAsservatenSchraenke((prev) => prev.map((schrank) =>
+        schrank.id === editingSchrankId
+          ? {
+              ...schrank,
+              name,
+              notiz: nextNote,
+            }
+          : schrank
+      ));
+      setSchrankFeedback({ tone: "success", text: `Schrank ${name} wurde aktualisiert.` });
+      closeSchrankEditor();
+      return;
+    }
+
+    const payload: AsservatenSchrankRecord = {
+      id: `ass-schrank-${Date.now()}`,
+      name,
+      notiz: schrankForm.notiz.trim() || "Kein zusätzlicher Vermerk hinterlegt.",
+      createdAt: formatDateTimeStamp(new Date()),
+    };
+
+    setAsservatenSchraenke((prev) => [payload, ...prev]);
+    setSelectedSchrankId(payload.id);
+    setSchrankFeedback({ tone: "success", text: `Schrank ${payload.name} wurde angelegt.` });
+    closeSchrankEditor();
+  }
+
+  function deleteSchrank(schrankId: string) {
+    const target = asservatenSchraenke.find((schrank) => schrank.id === schrankId);
+    if (!target) return;
+
+    const itemCount = asservatenItems.filter((item) => item.schrankId === schrankId).length;
+    if (itemCount > 0) {
+      setSchrankFeedback({
+        tone: "error",
+        text: `Schrank ${target.name} kann nicht gelöscht werden, solange noch ${itemCount} Gegenstand${itemCount === 1 ? "" : "e"} eingelagert ${itemCount === 1 ? "ist" : "sind"}.`,
+      });
+      return;
+    }
+
+    setAsservatenSchraenke((prev) => prev.filter((schrank) => schrank.id !== schrankId));
+    if (selectedSchrankId === schrankId) {
+      setSelectedSchrankId(null);
+      setItemMode(false);
+    }
+    if (editingSchrankId === schrankId) {
+      closeSchrankEditor();
+    }
+    if (movingItem?.schrankId === schrankId) {
+      resetMoveItemForm();
+    }
+    setSchrankFeedback({ tone: "success", text: `Schrank ${target.name} wurde gelöscht.` });
+  }
+
+  function assignWeaponToSchrank(weaponId: string, schrankId: string, note?: string) {
+    if (!weaponId || !schrankId) return;
+
+    const weapon = weaponRecords.find((record) => record.id === weaponId);
+    if (!weapon) return;
+
+    const payload: AsservatenItemRecord = {
+      id: `ass-item-${Date.now()}`,
+      schrankId,
+      category: "Waffe",
+      label: weapon.weapon,
+      weaponRecordId: weapon.id,
+      linkedStrafanzeigeId: weapon.linkedStrafanzeigeId,
+      storedAt: formatDateTimeStamp(new Date()),
+      notiz: note?.trim() || "Automatisch nach Beschlagnahmung einem Schrank zugewiesen.",
+    };
+
+    setAsservatenItems((prev) => {
+      const existing = prev.find((item) => item.weaponRecordId === weapon.id);
+      if (existing) {
+        return prev.map((item) =>
+          item.id === existing.id
+            ? {
+                ...item,
+                schrankId,
+                linkedStrafanzeigeId: weapon.linkedStrafanzeigeId,
+                storedAt: payload.storedAt,
+                notiz: payload.notiz,
+              }
+            : item
+        );
+      }
+
+      return [payload, ...prev];
+    });
+
+    resetAssignmentForm();
+  }
+
+  function moveItemToSchrank(itemId: string, schrankId: string, note?: string) {
+    if (!itemId || !schrankId) return;
+
+    const item = asservatenItems.find((entry) => entry.id === itemId);
+    const targetSchrank = asservatenSchraenke.find((schrank) => schrank.id === schrankId) ?? null;
+    if (!item || !targetSchrank || item.schrankId === schrankId) return;
+
+    const storedAt = formatDateTimeStamp(new Date());
+    const nextNote = note?.trim() || item.notiz || "Kein zusätzlicher Vermerk hinterlegt.";
+
+    setAsservatenItems((prev) => prev.map((entry) =>
+      entry.id === itemId
+        ? {
+            ...entry,
+            schrankId,
+            storedAt,
+            notiz: nextNote,
+          }
+        : entry
+    ));
+    setSchrankFeedback({ tone: "success", text: `${item.label} wurde nach ${targetSchrank.name} verschoben.` });
+    resetMoveItemForm();
+  }
+
+  function saveItem() {
+    if (!selectedSchrank) return;
+
+    const selectedOption = ASSERVAT_OPTIONS.find((entry) => entry.id === itemForm.asservatId) ?? null;
+    if (!selectedOption) return;
+
+    const storedAt = formatDateTimeStamp(new Date());
+    const trimmedNote = itemForm.notiz.trim() || "Kein zusätzlicher Vermerk hinterlegt.";
+
+    if (selectedOption.category === "Waffe") {
+      const linkedWeapon = weaponRecords.find((record) => record.id === itemForm.weaponRecordId);
+      if (!linkedWeapon) return;
+
+      const payload: AsservatenItemRecord = {
+        id: `ass-item-${Date.now()}`,
+        schrankId: selectedSchrank.id,
+        category: "Waffe",
+        label: linkedWeapon.weapon,
+        weaponRecordId: linkedWeapon.id,
+        linkedStrafanzeigeId: itemForm.linkedStrafanzeigeId || linkedWeapon.linkedStrafanzeigeId || null,
+        storedAt,
+        notiz: trimmedNote,
+      };
+
+      setAsservatenItems((prev) => {
+        const existing = prev.find((item) => item.weaponRecordId === linkedWeapon.id);
+        if (existing) {
+          return prev.map((item) =>
+            item.id === existing.id
+              ? {
+                  ...item,
+                  schrankId: payload.schrankId,
+                  linkedStrafanzeigeId: payload.linkedStrafanzeigeId,
+                  storedAt: payload.storedAt,
+                  notiz: payload.notiz,
+                }
+              : item
+          );
+        }
+
+        return [payload, ...prev];
+      });
+      setWeaponRecords((prev) => prev.map((record) =>
+        record.id === linkedWeapon.id
+          ? {
+              ...record,
+              status: "Beschlagnahmt",
+              linkedStrafanzeigeId: itemForm.linkedStrafanzeigeId || record.linkedStrafanzeigeId || null,
+            }
+          : record
+      ));
+      setItemMode(false);
+      resetItemForm();
+      return;
+    }
+
+    const payload: AsservatenItemRecord = {
+      id: `ass-item-${Date.now()}`,
+      schrankId: selectedSchrank.id,
+      category: selectedOption.category === "Waffe" ? "Waffe" : (selectedOption.category as AsservatenItemCategory),
+      label: selectedOption.label,
+      weaponRecordId: null,
+      linkedStrafanzeigeId: itemForm.linkedStrafanzeigeId || null,
+      storedAt,
+      notiz: trimmedNote,
+    };
+
+    setAsservatenItems((prev) => [payload, ...prev]);
+    setItemMode(false);
+    resetItemForm();
+  }
+
+  function removeItem(itemId: string) {
+    setAsservatenItems((prev) => prev.filter((item) => item.id !== itemId));
+  }
+
+  const schrankEditorTitle = schrankMode === "rename" ? "Schrank umbenennen" : "Schrank hinzufügen";
+  const schrankEditorActionLabel = schrankMode === "rename" ? "Änderungen speichern" : "Schrank speichern";
+  const schrankEditorDescription = schrankMode === "rename"
+    ? "Passe hier Name und Vermerk des Schranks an, ohne die enthaltenen Gegenstände zu verändern."
+    : "Lege hier einen weiteren Schrank für deine Asservatenkammer an.";
+
+  const schrankEditor = schrankMode ? (
+    <div className="mt-5 rounded-2xl border border-white/8 bg-white/[0.03] p-5">
+      <SectionTitle title={schrankEditorTitle} />
+      <p className="mb-5 max-w-4xl text-sm leading-6 text-white/58">{schrankEditorDescription}</p>
+      <div className="grid gap-5 lg:grid-cols-2">
+        <FieldBlock label="Schrankname">
+          <FancyInput
+            value={schrankForm.name}
+            onChange={(event) => setSchrankForm((current) => ({ ...current, name: event.target.value }))}
+            className="ui-input"
+            placeholder="z. B. Schrank 01"
+          />
+        </FieldBlock>
+        <FieldBlock label="Notiz">
+          <FancyInput
+            value={schrankForm.notiz}
+            onChange={(event) => setSchrankForm((current) => ({ ...current, notiz: event.target.value }))}
+            className="ui-input"
+            placeholder={schrankMode === "rename" ? "Optionalen Vermerk anpassen" : "Optionaler Hinweis oder Position"}
+          />
+        </FieldBlock>
+      </div>
+      <div className="mt-6 flex flex-wrap gap-3">
+        <UiButton onClick={closeSchrankEditor} variant="ghost">Abbrechen</UiButton>
+        <UiButton onClick={saveSchrank} variant={schrankMode === "rename" ? "blue" : "green"}>{schrankEditorActionLabel}</UiButton>
+      </div>
+    </div>
+  ) : null;
+
+  const feedbackPanel = schrankFeedback ? (
+    <div className={`mt-5 rounded-2xl border px-4 py-4 text-sm ${schrankFeedback.tone === "error" ? "border-rose-400/20 bg-rose-500/10 text-rose-100" : "border-emerald-400/20 bg-emerald-500/10 text-emerald-100"}`}>
+      {schrankFeedback.text}
+    </div>
+  ) : null;
+
+  if (selectedSchrank) {
+    const selectedSchrankItemCount = schrankItems.length;
+
+    return (
+      <AppShell
+        breadcrumb={`Hammer Modding CopLink / Asservatenkammer / ${selectedSchrank.name}`}
+        title={selectedSchrank.name}
+        actions={
+          <div className="flex flex-wrap gap-3">
+            <UiButton onClick={() => { setSelectedSchrankId(null); setItemMode(false); resetMoveItemForm(); }} variant="ghost">Zurück</UiButton>
+            <UiButton onClick={() => { setItemMode((current) => !current); resetItemForm(); }} variant="green">Asservat hinzufügen</UiButton>
+            <UiButton onClick={() => openRenameSchrank(selectedSchrank)} variant="blue">Schrank umbenennen</UiButton>
+            <UiButton onClick={() => deleteSchrank(selectedSchrank.id)} variant="red-alt">Schrank löschen</UiButton>
+            <UiButton onClick={openCreateSchrank} variant="blue">Schrank hinzufügen</UiButton>
+          </div>
+        }
+      >
+        <div className="grid gap-5 lg:grid-cols-4">
+          <InfoCard label="Schrank" value={selectedSchrank.name} />
+          <InfoCard label="Angelegt am" value={selectedSchrank.createdAt} />
+          <InfoCard label="Einträge" value={String(selectedSchrankItemCount)} />
+          <InfoCard label="Offene Asservate" value={String(unassignedConfiscatedWeapons.length)} />
+        </div>
+
+        {feedbackPanel}
+        {schrankEditor}
+
+        <div className="mt-5 rounded-2xl border border-white/8 bg-white/[0.03] p-5">
+          <SectionTitle title="Schranknotiz" action={<ToneBadge text={selectedSchrankItemCount ? `${selectedSchrankItemCount} eingelagert` : "Leer"} tone={selectedSchrankItemCount ? "cyan" : "neutral"} />} />
+          <p className="max-w-4xl whitespace-pre-wrap leading-7 text-white/72">{selectedSchrank.notiz}</p>
+        </div>
+
+        {itemMode ? (
+          <div className="mt-5 rounded-2xl border border-white/8 bg-white/[0.03] p-5">
+            <SectionTitle title="Asservat hinzufügen" />
+            <p className="mb-5 text-sm text-white/58">
+              Hinterlege hier Gegenstände direkt in diesem Schrank. Für Waffen nutzt du denselben Auswahlweg wie in Strafanzeigen und ordnest danach die passende Seriennummer aus dem Waffenregister zu.
+            </p>
+            <div className="grid gap-5 lg:grid-cols-2">
+              <FieldBlock label="Gegenstand">
+                <FancySelect
+                  value={itemForm.asservatId}
+                  onChange={updateItemAsservat}
+                  options={asservatSelectOptions}
+                  placeholder="Gegenstand auswählen"
+                />
+              </FieldBlock>
+              <FieldBlock label="Verknüpfte Strafanzeige">
+                <FancySelect
+                  value={itemForm.linkedStrafanzeigeId}
+                  onChange={(value) => setItemForm((current) => ({ ...current, linkedStrafanzeigeId: value }))}
+                  options={linkedAnzeigeOptions}
+                  placeholder="Optional auswählen"
+                />
+              </FieldBlock>
+              {selectedItemOption?.category === "Waffe" ? (
+                <>
+                  <FieldBlock label="Seriennummer aus Waffenregister">
+                    <FancySelect
+                      value={itemForm.weaponRecordId}
+                      onChange={(value) => setItemForm((current) => ({ ...current, weaponRecordId: value }))}
+                      options={[{ value: "", label: "Seriennummer auswählen" }, ...manualWeaponSerialOptions]}
+                      placeholder={manualWeaponSerialOptions.length ? "Seriennummer auswählen" : "Keine passende Waffe gefunden"}
+                    />
+                  </FieldBlock>
+                  <div className="rounded-2xl border border-white/8 bg-black/18 p-4">
+                    <p className="text-xs uppercase tracking-[0.22em] text-white/38">Verknüpfung</p>
+                    {selectedManualWeapon ? (
+                      <div className="mt-3 space-y-2 text-sm text-white/72">
+                        <p><span className="text-white/42">Eigentümer:</span> <span className="font-semibold text-white">{selectedManualWeapon.besitzer}</span></p>
+                        <p><span className="text-white/42">Status:</span> <span className="font-semibold text-white">{selectedManualWeapon.status}</span></p>
+                        <p className="text-cyan-200/80">Seriennummer {selectedManualWeapon.serial}</p>
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-sm leading-6 text-white/70">
+                        {manualWeaponSerialOptions.length
+                          ? "Wähle die konkrete Seriennummer aus dem Waffenregister, damit genau diese Waffe eingelagert wird."
+                          : "Für den ausgewählten Waffentyp ist aktuell keine passende registrierte Waffe verfügbar."}
+                      </p>
+                    )}
+                  </div>
+                </>
+              ) : itemForm.asservatId ? (
+                <div className="rounded-2xl border border-white/8 bg-black/18 p-4 lg:col-span-2">
+                  <p className="text-xs uppercase tracking-[0.22em] text-white/38">Kategorie</p>
+                  <p className="mt-3 text-sm font-semibold text-white">{selectedItemOption?.category ?? "-"}</p>
+                </div>
+              ) : null}
+              <FieldBlock label="Notiz" className="lg:col-span-2">
+                <FancyTextarea
+                  value={itemForm.notiz}
+                  onChange={(event) => setItemForm((current) => ({ ...current, notiz: event.target.value }))}
+                  className="ui-textarea min-h-[140px]"
+                  placeholder="Optionaler Vermerk zur Einlagerung"
+                />
+              </FieldBlock>
+              <div className="rounded-2xl border border-white/8 bg-black/18 p-4 lg:col-span-2">
+                <p className="text-xs uppercase tracking-[0.22em] text-white/38">Hinweis</p>
+                <p className="mt-3 text-sm leading-6 text-white/70">
+                  Beschlagnahmte Waffen aus Strafanzeigen tauchen weiterhin automatisch zuerst als nicht zugeordnet auf. Dieses Formular ist für direkte Einlagerungen und allgemeine Gegenstände gedacht.
+                </p>
+              </div>
+            </div>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <UiButton onClick={() => setItemMode(false)} variant="ghost">Abbrechen</UiButton>
+              <UiButton onClick={saveItem} variant="green">Asservat hinzufügen</UiButton>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="mt-5 rounded-2xl border border-white/8 bg-white/[0.03] p-5">
+          <SectionTitle title="Inhalt" action={<ToneBadge text={`${selectedSchrankItemCount} Einträge`} tone="cyan" />} />
+          <div className="overflow-hidden rounded-2xl border border-white/8">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-white/[0.05] text-white/55">
+                <tr>
+                  <th className="px-4 py-4 font-medium">Gegenstand</th>
+                  <th className="px-4 py-4 font-medium">Kategorie</th>
+                  <th className="px-4 py-4 font-medium">Bezug</th>
+                  <th className="px-4 py-4 font-medium">Eingelagert am</th>
+                  <th className="px-4 py-4 font-medium">Aktion</th>
+                </tr>
+              </thead>
+              <tbody className="bg-black/15 text-white/90">
+                {schrankItems.length ? schrankItems.map((item) => {
+                  const linkedWeapon = item.weaponRecordId ? weaponRecords.find((record) => record.id === item.weaponRecordId) ?? null : null;
+                  const linkedAnzeige = item.linkedStrafanzeigeId ? strafanzeigenRecords.find((record) => record.id === item.linkedStrafanzeigeId) ?? null : null;
+
+                  const isMovingItem = movingItemId === item.id;
+
+                  return (
+                    <Fragment key={item.id}>
+                      <tr className="border-t border-white/6">
+                        <td className="px-4 py-4">
+                          <div>
+                            <p className="font-semibold text-white">{linkedWeapon ? linkedWeapon.weapon : item.label}</p>
+                            <p className="mt-1 text-xs text-white/42">
+                              {linkedWeapon
+                                ? `Seriennummer ${linkedWeapon.serial} · Eigentümer ${linkedWeapon.besitzer}`
+                                : item.notiz}
+                            </p>
+                          </div>
+                        </td>
+                        <td className="px-4 py-4"><ToneBadge text={item.category} tone={item.category === "Waffe" ? "red" : item.category === "Elektronik" ? "cyan" : "neutral"} /></td>
+                        <td className="px-4 py-4">{linkedAnzeige ? `${linkedAnzeige.id} · ${linkedAnzeige.taeter}` : "-"}</td>
+                        <td className="px-4 py-4">{item.storedAt}</td>
+                        <td className="px-4 py-4">
+                          <div className="flex flex-wrap gap-2">
+                            <UiButton
+                              onClick={() => resetMoveItemForm(isMovingItem ? undefined : item.id)}
+                              variant="blue"
+                              disabled={moveTargetSchrankOptions.length === 0 && !isMovingItem}
+                            >
+                              Verschieben
+                            </UiButton>
+                            <UiButton onClick={() => removeItem(item.id)} variant="ghost">Auslagern</UiButton>
+                          </div>
+                        </td>
+                      </tr>
+                      {isMovingItem ? (
+                        <tr className="border-t border-cyan-400/10 bg-cyan-500/6">
+                          <td className="px-4 py-4" colSpan={5}>
+                            <div className="grid gap-4 lg:grid-cols-[1fr_1fr_auto]">
+                              <FieldBlock label="Zielschrank">
+                                <FancySelect
+                                  value={moveItemForm.schrankId}
+                                  onChange={(value) => setMoveItemForm((current) => ({ ...current, schrankId: value }))}
+                                  options={moveTargetSchrankOptions}
+                                  placeholder={moveTargetSchrankOptions.length ? "Schrank wählen" : "Kein anderer Schrank vorhanden"}
+                                />
+                              </FieldBlock>
+                              <FieldBlock label="Vermerk">
+                                <FancyInput
+                                  value={moveItemForm.notiz}
+                                  onChange={(event) => setMoveItemForm((current) => ({ ...current, notiz: event.target.value }))}
+                                  className="ui-input"
+                                  placeholder="Optionaler Vermerk zur Umlagerung"
+                                />
+                              </FieldBlock>
+                              <div className="flex items-end gap-3">
+                                <UiButton onClick={() => resetMoveItemForm()} variant="ghost">Abbrechen</UiButton>
+                                <UiButton
+                                  onClick={() => moveItemToSchrank(item.id, moveItemForm.schrankId, moveItemForm.notiz)}
+                                  variant="green"
+                                  disabled={!moveItemForm.schrankId || moveTargetSchrankOptions.length === 0}
+                                >
+                                  Umlagern
+                                </UiButton>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  );
+                }) : (
+                  <tr className="border-t border-white/6">
+                    <td className="px-4 py-5 text-white/45" colSpan={5}>Dieser Schrank ist aktuell leer.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
+
+  return (
+    <AppShell
+      breadcrumb="Hammer Modding CopLink / Asservatenkammer"
+      title="Asservatenkammer"
+      actions={<UiButton onClick={openCreateSchrank} variant="blue">Schrank hinzufügen</UiButton>}
+    >
+      <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4 text-sm text-white/60">
+        Die Asservatenkammer bildet deine Ingame-Schrankstruktur digital ab. Beschlagnahmte Waffen landen hier zuerst als noch nicht zugeordnete Gegenstände und werden erst anschließend einem konkreten Schrank zugewiesen.
+      </div>
+
+      <div className="mt-5 grid gap-5 lg:grid-cols-4">
+        <InfoCard label="Schränke" value={String(asservatenSchraenke.length)} />
+        <InfoCard label="Eingelagerte Asservate" value={String(asservatenItems.length)} />
+        <InfoCard label="Nicht zugeordnet" value={String(unassignedConfiscatedWeapons.length)} />
+        <InfoCard label="Beschlagnahmte Waffen" value={String(weaponRecords.filter((record) => record.status === "Beschlagnahmt").length)} />
+      </div>
+
+      {feedbackPanel}
+      {schrankEditor}
+
+      <div className="mt-5 rounded-2xl border border-white/8 bg-black/15 p-5">
+        <SectionTitle title="Nicht zugeordnete Gegenstände" action={<ToneBadge text={`${unassignedConfiscatedWeapons.length} offen`} tone={unassignedConfiscatedWeapons.length ? "yellow" : "neutral"} />} />
+        <p className="mb-5 max-w-4xl text-sm leading-6 text-white/58">
+          Hier tauchen beschlagnahmte Waffen automatisch auf, sobald sie über eine Strafanzeige erfasst wurden. Sie sind beschlagnahmt, aber noch keinem konkreten Schrank zugeordnet.
+        </p>
+
+        <div className="space-y-4">
+          {unassignedConfiscatedWeapons.length ? unassignedConfiscatedWeapons.map((weapon) => {
+            const linkedAnzeige = weapon.linkedStrafanzeigeId
+              ? strafanzeigenRecords.find((record) => record.id === weapon.linkedStrafanzeigeId) ?? null
+              : null;
+            const isAssigning = assigningWeaponId === weapon.id;
+            const selectedAssignmentSchrank = assignmentForm.schrankId ? schrankLookup[assignmentForm.schrankId] ?? null : null;
+
+            return (
+              <div key={weapon.id} className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-base font-semibold text-white">{weapon.weapon}</p>
+                      <ToneBadge text="Beschlagnahmt" tone="red" />
+                      <ToneBadge text="Noch nicht zugeordnet" tone="yellow" />
+                    </div>
+                    <p className="mt-2 text-sm text-white/68">Seriennummer {weapon.serial} · Eigentümer {weapon.besitzer}</p>
+                    <p className="mt-1 text-xs text-white/42">
+                      {linkedAnzeige ? `Verknüpft mit ${linkedAnzeige.id} · ${linkedAnzeige.taeter}` : "Keine verknüpfte Strafanzeige hinterlegt."}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-3">
+                    <UiButton onClick={() => resetAssignmentForm(weapon.id)} variant="blue">Schrank zuweisen</UiButton>
+                  </div>
+                </div>
+
+                {isAssigning ? (
+                  <div className="mt-5 grid gap-4 rounded-2xl border border-cyan-400/15 bg-cyan-500/8 p-4 lg:grid-cols-[1fr_1fr_auto]">
+                    <FieldBlock label="Zielschrank">
+                      <FancySelect
+                        value={assignmentForm.schrankId}
+                        onChange={(value) => setAssignmentForm((current) => ({ ...current, schrankId: value }))}
+                        options={schrankSelectOptions}
+                        placeholder={asservatenSchraenke.length ? "Schrank wählen" : "Kein Schrank vorhanden"}
+                      />
+                    </FieldBlock>
+                    <FieldBlock label="Vermerk">
+                      <FancyInput
+                        value={assignmentForm.notiz}
+                        onChange={(event) => setAssignmentForm((current) => ({ ...current, notiz: event.target.value }))}
+                        className="ui-input"
+                        placeholder={selectedAssignmentSchrank ? `z. B. in ${selectedAssignmentSchrank.name} hinterlegt` : "Optionaler Lagervermerk"}
+                      />
+                    </FieldBlock>
+                    <div className="flex items-end gap-3">
+                      <UiButton onClick={() => resetAssignmentForm()} variant="ghost">Abbrechen</UiButton>
+                      <UiButton
+                        onClick={() => assignWeaponToSchrank(weapon.id, assignmentForm.schrankId, assignmentForm.notiz)}
+                        variant="green"
+                        disabled={!assignmentForm.schrankId || !asservatenSchraenke.length}
+                      >
+                        Einlagern
+                      </UiButton>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            );
+          }) : (
+            <div className="rounded-xl border border-white/8 bg-white/[0.03] px-4 py-6 text-sm text-white/50">
+              Aktuell gibt es keine beschlagnahmten Waffen ohne Schrankzuordnung.
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-4 xl:grid-cols-2">
+        {asservatenSchraenke.map((schrank) => {
+          const itemCount = asservatenItems.filter((item) => item.schrankId === schrank.id).length;
+
+          return (
+            <div
+              key={schrank.id}
+              className="rounded-2xl border border-white/8 bg-black/15 p-5 transition hover:border-red-400/25 hover:bg-white/[0.04]"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.24em] text-red-200/55">Asservaten-Schrank</p>
+                  <p className="mt-2 text-xl font-semibold text-white">{schrank.name}</p>
+                </div>
+                <ToneBadge text={`${itemCount} Einträge`} tone={itemCount ? "cyan" : "neutral"} />
+              </div>
+              <p className="mt-4 line-clamp-3 text-sm leading-6 text-white/60">{schrank.notiz}</p>
+              <div className="mt-5 flex flex-wrap items-center justify-between gap-3 text-xs uppercase tracking-[0.18em] text-white/36">
+                <span>Angelegt {schrank.createdAt}</span>
+                <span>{itemCount ? "Belegt" : "Leer"}</span>
+              </div>
+              <div className="mt-5 flex flex-wrap gap-3">
+                <UiButton onClick={() => { setSelectedSchrankId(schrank.id); setItemMode(false); setSchrankFeedback(null); resetMoveItemForm(); }} variant="ghost">Öffnen</UiButton>
+                <UiButton onClick={() => openRenameSchrank(schrank)} variant="blue">Umbenennen</UiButton>
+                <UiButton onClick={() => deleteSchrank(schrank.id)} variant="red-alt">Löschen</UiButton>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {!asservatenSchraenke.length ? (
+        <div className="mt-5 rounded-xl border border-white/8 bg-white/[0.03] px-4 py-6 text-sm text-white/50">
+          Noch keine Schränke vorhanden. Lege zuerst einen Schrank an, damit Gegenstände sauber eingelagert werden können.
+        </div>
+      ) : null}
     </AppShell>
   );
 }
@@ -2300,7 +2882,7 @@ function CalculatorApp() {
   return (
     <div className="h-full bg-[#0b0d13] p-4 text-white">
       <div className="rounded-2xl border border-white/10 bg-black/40 p-4">
-        <p className="text-xs uppercase tracking-[0.28em] text-red-300/70">Bitterhafen CopLink / Taschenrechner</p>
+        <p className="text-xs uppercase tracking-[0.28em] text-red-300/70">Hammer Modding CopLink / Taschenrechner</p>
         <div className="mt-4 rounded-xl border border-white/10 bg-black/40 p-4">
           <div className="text-sm text-white/50">{expression || "0"}</div>
           <div className="mt-2 text-3xl font-bold">{result}</div>
@@ -2343,565 +2925,1723 @@ function CalculatorApp() {
   );
 }
 
+function StrafenApp() {
+  const [search, setSearch] = useState("");
+  const [lawFilter, setLawFilter] = useState<"alle" | StrafgesetzId>("alle");
+  const [rowsPerSection, setRowsPerSection] = useState("10");
+  const [openSections, setOpenSections] = useState<Record<StrafgesetzId, boolean>>({
+    stgb: true,
+    stvo: false,
+    owig: false,
+    btmg: false,
+    waffg: false,
+    dsg: false,
+  });
+
+  const filteredEntries = useMemo(() => {
+    const term = normalizeSearchValue(search);
+    return STRAFKATALOG.filter((entry) => {
+      const lawMatch = lawFilter === "alle" ? true : entry.lawId === lawFilter;
+      const searchMatch = !term
+        ? true
+        : `${entry.paragraph} ${entry.title} ${entry.notes} ${entry.lawId}`.toLowerCase().includes(term);
+      return lawMatch && searchMatch;
+    });
+  }, [lawFilter, search]);
+
+  const groupedEntries = useMemo(
+    () =>
+      STRAFGESETZE.map((law) => ({
+        ...law,
+        entries: filteredEntries.filter((entry) => entry.lawId === law.id),
+      })).filter((law) => law.entries.length > 0),
+    [filteredEntries],
+  );
+
+  const rowsLimit = rowsPerSection === "alle" ? Number.POSITIVE_INFINITY : Number(rowsPerSection);
+  const entriesWithPrison = filteredEntries.filter((entry) => entry.he > 0).length;
+  const entriesWithPoints = filteredEntries.filter((entry) => entry.points > 0).length;
+  const highestFine = filteredEntries.reduce((max, entry) => Math.max(max, entry.fine), 0);
+
+  return (
+    <AppShell
+      breadcrumb="Hammer Modding CopLink / Strafen"
+      title="Strafkatalog"
+      actions={
+        <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-right text-xs text-red-100/80">
+          <div className="uppercase tracking-[0.28em] text-red-200/50">Catalog Sync</div>
+          <div className="mt-1 font-semibold text-red-100">{STRAFKATALOG.length} Delikte geladen</div>
+        </div>
+      }
+    >
+      <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-5 py-4 text-sm text-amber-100">
+        Dieser Strafkatalog ist jetzt als CopLink-Datenbasis hinterlegt und kann im nächsten Modul direkt für Strafanzeigen verwendet werden.
+      </div>
+
+      <div className="mt-5 grid gap-4 lg:grid-cols-4">
+        <InfoCard label="Aktive Treffer" value={String(filteredEntries.length)} />
+        <InfoCard label="Mit Haft" value={String(entriesWithPrison)} />
+        <InfoCard label="Mit Punkten" value={String(entriesWithPoints)} />
+        <InfoCard label="Höchste Geldstrafe" value={formatEuroValue(highestFine)} />
+      </div>
+
+      <div className="mt-5 grid gap-4 xl:grid-cols-[1.2fr_240px_220px]">
+        <FancyInput
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Nach Paragraph, Delikt oder Hinweis suchen..."
+          className="ui-input"
+        />
+        <FancySelect
+          value={lawFilter}
+          onChange={(value) => setLawFilter(value as "alle" | StrafgesetzId)}
+          options={[{ value: "alle", label: "Alle Gesetzbücher" }, ...STRAFGESETZE.map((law) => ({ value: law.id, label: law.label }))]}
+        />
+        <FancySelect
+          value={rowsPerSection}
+          onChange={setRowsPerSection}
+          options={[
+            { value: "10", label: "10 Einträge je Block" },
+            { value: "25", label: "25 Einträge je Block" },
+            { value: "50", label: "50 Einträge je Block" },
+            { value: "alle", label: "Alle Einträge" },
+          ]}
+        />
+      </div>
+
+      <div className="mt-5 space-y-4">
+        {groupedEntries.length ? (
+          groupedEntries.map((law) => {
+            const isOpen = openSections[law.id];
+            const visibleEntries = law.entries.slice(0, rowsLimit);
+
+            return (
+              <div key={law.id} className="overflow-hidden rounded-2xl border border-white/8 bg-black/15">
+                <button
+                  type="button"
+                  onClick={() => setOpenSections((current) => ({ ...current, [law.id]: !current[law.id] }))}
+                  className="flex w-full items-center justify-between gap-4 border-b border-white/8 px-5 py-4 text-left transition hover:bg-white/[0.04]"
+                >
+                  <div>
+                    <p className="text-lg font-semibold text-white">{law.label}</p>
+                    <p className="mt-1 text-xs uppercase tracking-[0.24em] text-white/40">{law.entries.length} Treffer in diesem Gesetzbuch</p>
+                  </div>
+                  <span className={`text-xl text-white/50 transition ${isOpen ? "rotate-180" : ""}`}>⌃</span>
+                </button>
+
+                {isOpen ? (
+                  <div className="window-scrollbar overflow-auto">
+                    <table className="min-w-full text-left text-sm">
+                      <thead className="bg-white/[0.05] text-white/55">
+                        <tr>
+                          <th className="px-4 py-4 font-medium">§</th>
+                          <th className="px-4 py-4 font-medium">Straftat</th>
+                          <th className="px-4 py-4 font-medium">Bußgeld</th>
+                          <th className="px-4 py-4 font-medium">Hafteinheiten</th>
+                          <th className="px-4 py-4 font-medium">Punkte</th>
+                          <th className="px-4 py-4 font-medium">Sonstiges</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-black/15 text-white/90">
+                        {visibleEntries.map((entry) => (
+                          <tr key={entry.id} className="border-t border-white/6 align-top">
+                            <td className="px-4 py-4 font-semibold text-red-100">§ {entry.paragraph}</td>
+                            <td className="px-4 py-4">
+                              <div className="font-medium text-white">{entry.title}</div>
+                            </td>
+                            <td className="px-4 py-4">{formatEuroValue(entry.fine)}</td>
+                            <td className="px-4 py-4">{formatHeValue(entry.he)}</td>
+                            <td className="px-4 py-4">{formatPointsValue(entry.points)}</td>
+                            <td className="px-4 py-4 text-white/60">{entry.notes}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {Number.isFinite(rowsLimit) && law.entries.length > rowsLimit ? (
+                      <div className="border-t border-white/8 px-5 py-3 text-xs uppercase tracking-[0.22em] text-white/40">
+                        {rowsLimit} von {law.entries.length} Einträgen sichtbar
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })
+        ) : (
+          <div className="rounded-2xl border border-white/8 bg-black/15 px-5 py-10 text-center text-sm text-white/55">
+            Keine Treffer für deine aktuelle Suche.
+          </div>
+        )}
+      </div>
+    </AppShell>
+  );
+}
+
+
+
+function StrafanzeigenApp() {
+  const { aktenRecords, setAktenRecords, strafanzeigenRecords, setStrafanzeigenRecords, weaponRecords, setWeaponRecords, asservatenItems, setAsservatenItems, asservatenSchraenke } = useContext(RecordsContext);
+  const [viewMode, setViewMode] = useState<"overview" | "viewer" | "editor">("overview");
+  const [selectedOffenseIds, setSelectedOffenseIds] = useState<string[]>([]);
+  const [selectedAsservatIds, setSelectedAsservatIds] = useState<string[]>([]);
+  const [asservatWeaponLinks, setAsservatWeaponLinks] = useState<Record<string, string>>({});
+  const [search, setSearch] = useState("");
+  const [asservatSearch, setAsservatSearch] = useState("");
+  const [lawFilter, setLawFilter] = useState<"alle" | StrafgesetzId>("alle");
+  const [listSearch, setListSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"alle" | StrafanzeigeStatus>("alle");
+  const [selectedRecordId, setSelectedRecordId] = useState<string | null>(INITIAL_STRAFANZEIGEN[0]?.id ?? null);
+  const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    from: "",
+    taeter: "",
+    officer: "",
+    status: "Erstellt" as StrafanzeigeStatus,
+    notes: "",
+    confession: false,
+    repeatOffender: false,
+  });
+  const [editorSaveError, setEditorSaveError] = useState("");
+
+  const personOptions = useMemo(() => {
+    const names = aktenRecords
+      .filter((record) => record.kind === "personenakte" && record.person)
+      .map((record) => record.person?.vorNachname ?? "")
+      .filter(Boolean);
+    return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b, "de"));
+  }, [aktenRecords]);
+
+  const personSelectOptions = useMemo(
+    () => personOptions.map((name) => ({ value: name, label: name })),
+    [personOptions],
+  );
+
+  const fromSelectOptions = useMemo(() => {
+    const options = [{ value: "", label: "Personenakte auswählen" }, ...personSelectOptions];
+    if (form.from && !options.some((option) => option.value === form.from)) {
+      options.push({ value: form.from, label: `${form.from} (Altbestand)` });
+    }
+    return options;
+  }, [form.from, personSelectOptions]);
+
+  const taeterSelectOptions = useMemo(() => {
+    const options = [
+      { value: "", label: "Täter auswählen" },
+      { value: "Unbekannt", label: "Unbekannt" },
+      ...personSelectOptions,
+    ];
+
+    if (form.taeter && !options.some((option) => option.value === form.taeter)) {
+      options.unshift({ value: form.taeter, label: `${form.taeter} (Altbestand)` });
+    }
+
+    return options;
+  }, [form.taeter, personSelectOptions]);
+
+  const statusSelectOptions = useMemo(
+    () => STRAFANZEIGE_STATUS_OPTIONS.map((status) => ({ value: status, label: getStrafanzeigeStatusMeta(status).label })),
+    [],
+  );
+
+  const lawOrder = useMemo(() => new Map(STRAFGESETZE.map((law, index) => [law.id, index])), []);
+
+  const filteredCatalog = useMemo(() => {
+    const term = normalizeSearchValue(search);
+
+    return STRAFKATALOG
+      .filter((entry) => {
+        if (selectedOffenseIds.includes(entry.id)) return false;
+        const lawMatch = lawFilter === "alle" ? true : entry.lawId === lawFilter;
+        const searchMatch = !term ? true : `${entry.paragraph} ${entry.title} ${entry.notes} ${entry.lawId}`.toLowerCase().includes(term);
+        return lawMatch && searchMatch;
+      })
+      .sort((a, b) => {
+        const lawDiff = (lawOrder.get(a.lawId) ?? 0) - (lawOrder.get(b.lawId) ?? 0);
+        if (lawDiff !== 0) return lawDiff;
+        const paragraphDiff = Number(a.paragraph) - Number(b.paragraph);
+        if (!Number.isNaN(paragraphDiff) && paragraphDiff !== 0) return paragraphDiff;
+        return a.title.localeCompare(b.title, "de");
+      });
+  }, [lawFilter, lawOrder, search, selectedOffenseIds]);
+
+  const filteredAsservaten = useMemo(() => {
+    const term = normalizeSearchValue(asservatSearch);
+
+    return ASSERVAT_OPTIONS.filter((entry) => {
+      if (selectedAsservatIds.includes(entry.id)) return false;
+      return !term ? true : `${entry.label} ${entry.category}`.toLowerCase().includes(term);
+    });
+  }, [asservatSearch, selectedAsservatIds]);
+
+  const selectedAsservaten = useMemo(
+    () => selectedAsservatIds.map((id) => ASSERVAT_OPTIONS.find((entry) => entry.id === id)).filter(Boolean),
+    [selectedAsservatIds],
+  );
+  const selectedAsservatWeaponOptions = useMemo(() => {
+    const activeAnzeigeId = editingRecordId ?? selectedRecordId;
+
+    return Object.fromEntries(
+      selectedAsservaten
+        .filter((entry): entry is NonNullable<(typeof selectedAsservaten)[number]> => Boolean(entry && entry.category === "Waffe"))
+        .map((entry) => [
+          entry.id,
+          weaponRecords
+            .filter((record) =>
+              record.weapon === entry.label && (!record.linkedStrafanzeigeId || record.linkedStrafanzeigeId === activeAnzeigeId)
+            )
+            .map((record) => ({
+              value: record.id,
+              label: `${record.serial} · ${record.besitzer !== "Unbekannt" ? record.besitzer : "ohne Besitzer"}`,
+            })),
+        ])
+    ) as Record<string, Array<{ value: string; label: string }>>;
+  }, [editingRecordId, selectedAsservaten, selectedRecordId, weaponRecords]);
+
+  const selectedAsservatWeaponLookup = useMemo(() => {
+    return Object.fromEntries(
+      Object.entries(asservatWeaponLinks).map(([asservatId, weaponId]) => [asservatId, weaponRecords.find((record) => record.id === weaponId) ?? null])
+    ) as Record<string, WeaponRecord | null>;
+  }, [asservatWeaponLinks, weaponRecords]);
+
+  const visibleRecords = useMemo(() => {
+    const term = normalizeSearchValue(listSearch);
+    return strafanzeigenRecords.filter((record) => {
+      const statusMatch = statusFilter === "alle" ? true : record.status === statusFilter;
+      const searchMatch = !term ? true : `${record.id} ${record.taeter} ${record.officer} ${record.from} ${record.status}`.toLowerCase().includes(term);
+      return statusMatch && searchMatch;
+    });
+  }, [listSearch, statusFilter, strafanzeigenRecords]);
+
+  const effectiveSelectedRecordId = useMemo(() => {
+    if (selectedRecordId && visibleRecords.some((record) => record.id === selectedRecordId)) {
+      return selectedRecordId;
+    }
+    return visibleRecords[0]?.id ?? null;
+  }, [selectedRecordId, visibleRecords]);
+
+  const selectedRecord = useMemo(() => strafanzeigenRecords.find((record) => record.id === effectiveSelectedRecordId) ?? null, [effectiveSelectedRecordId, strafanzeigenRecords]);
+
+  const selectedRecordAsservatWeaponLookup = useMemo(() => {
+    if (!selectedRecord) return {};
+
+    return Object.fromEntries(
+      Object.entries(selectedRecord.asservatWeaponLinks ?? {}).map(([asservatId, weaponId]) => [asservatId, weaponRecords.find((record) => record.id === weaponId) ?? null])
+    ) as Record<string, WeaponRecord | null>;
+  }, [selectedRecord, weaponRecords]);
+
+  const resolveWeaponForRecordAsservat = useCallback((record: StrafanzeigeRecord, asservatId: string, label: string) => {
+    const directWeaponId = record.asservatWeaponLinks?.[asservatId] ?? "";
+    if (directWeaponId) {
+      const directMatch = weaponRecords.find((weapon) => weapon.id === directWeaponId) ?? null;
+      if (directMatch) {
+        return directMatch;
+      }
+    }
+
+    const linkedByAnzeigeAndLabel = weaponRecords.find((weapon) => weapon.linkedStrafanzeigeId === record.id && weapon.weapon === label) ?? null;
+    if (linkedByAnzeigeAndLabel) {
+      return linkedByAnzeigeAndLabel;
+    }
+
+    const linkedByAnzeige = weaponRecords.filter((weapon) => weapon.linkedStrafanzeigeId === record.id);
+    if (linkedByAnzeige.length === 1) {
+      return linkedByAnzeige[0];
+    }
+
+    return null;
+  }, [weaponRecords]);
+
+  const liveTotals = useMemo(
+    () => calculateStrafSummen(selectedOffenseIds, { confession: form.confession, repeatOffender: form.repeatOffender }),
+    [form.confession, form.repeatOffender, selectedOffenseIds],
+  );
+
+  const selectedOffenses = useMemo(() => getOffensesByIds(selectedOffenseIds), [selectedOffenseIds]);
+
+  const selectedRecordTotals = selectedRecord ? calculateStrafSummen(selectedRecord.offenseIds, selectedRecord.modifiers) : null;
+  const selectedRecordOffenses = selectedRecord ? getOffensesByIds(selectedRecord.offenseIds) : [];
+  const selectedRecordAsservaten = selectedRecord
+    ? selectedRecord.asservatenIds.map((id) => ASSERVAT_OPTIONS.find((entry) => entry.id === id)).filter(Boolean)
+    : [];
+  const linkedWeaponsForSelectedRecord = selectedRecord
+    ? weaponRecords.filter((record) => record.linkedStrafanzeigeId === selectedRecord.id && record.status === "Beschlagnahmt")
+    : [];
+  const selectedRecordStatusMeta = selectedRecord ? getStrafanzeigeStatusMeta(selectedRecord.status) : null;
+  const formStatusMeta = getStrafanzeigeStatusMeta(form.status);
+  const formHasFahndung = form.status === "Gesucht";
+  const selectedRecordAkte = useMemo(
+    () =>
+      selectedRecord
+        ? aktenRecords.find(
+            (record) =>
+              record.kind === "personenakte" &&
+              record.person &&
+              normalizeSearchValue(record.person.vorNachname) === normalizeSearchValue(selectedRecord.taeter),
+          ) ?? null
+        : null,
+    [aktenRecords, selectedRecord],
+  );
+
+  const weaponStorageLookup = useMemo(() => {
+    return Object.fromEntries(
+      asservatenItems
+        .filter((item) => item.weaponRecordId)
+        .map((item) => [item.weaponRecordId as string, item])
+    ) as Record<string, AsservatenItemRecord>;
+  }, [asservatenItems]);
+
+  const schrankLookup = useMemo(() => {
+    return Object.fromEntries(asservatenSchraenke.map((schrank) => [schrank.id, schrank]));
+  }, [asservatenSchraenke]);
+
+  const recordStats = useMemo(() => {
+    const withHe = strafanzeigenRecords.filter((record) => calculateStrafSummen(record.offenseIds, record.modifiers).he > 0).length;
+    return {
+      total: strafanzeigenRecords.length,
+      erstellt: strafanzeigenRecords.filter((record) => record.status === "Erstellt").length,
+      gesucht: strafanzeigenRecords.filter((record) => record.status === "Gesucht").length,
+      abgeschlossen: strafanzeigenRecords.filter((record) => record.status === "Abgeschlossen").length,
+      mitHaft: withHe,
+    };
+  }, [strafanzeigenRecords]);
+
+  function clearEditorForm() {
+    setEditorSaveError("");
+    setEditingRecordId(null);
+    setForm({
+      from: "",
+      taeter: "",
+      officer: "",
+      status: "Erstellt",
+      notes: "",
+      confession: false,
+      repeatOffender: false,
+    });
+    setSelectedOffenseIds([]);
+    setSelectedAsservatIds([]);
+    setAsservatWeaponLinks({});
+    setSearch("");
+    setAsservatSearch("");
+    setLawFilter("alle");
+  }
+
+  function beginCreateAnzeige() {
+    clearEditorForm();
+    setViewMode("editor");
+  }
+
+  function closeEditorAndReturn() {
+    clearEditorForm();
+    setViewMode("overview");
+  }
+
+  function openRecordViewer(recordId: string) {
+    setEditorSaveError("");
+    setSelectedRecordId(recordId);
+    setViewMode("viewer");
+  }
+
+  function addOffense(id: string) {
+    setEditorSaveError("");
+    setSelectedOffenseIds((current) => (current.includes(id) ? current : [...current, id]));
+  }
+
+  function removeOffense(id: string) {
+    setEditorSaveError("");
+    setSelectedOffenseIds((current) => current.filter((entryId) => entryId !== id));
+  }
+
+  function addAsservat(id: string) {
+    setEditorSaveError("");
+    setSelectedAsservatIds((current) => (current.includes(id) ? current : [...current, id]));
+  }
+
+  function updateAsservatWeaponLink(asservatId: string, weaponId: string) {
+    setAsservatWeaponLinks((current) => ({ ...current, [asservatId]: weaponId }));
+  }
+
+  function removeAsservat(id: string) {
+    setEditorSaveError("");
+    setSelectedAsservatIds((current) => current.filter((entryId) => entryId !== id));
+    setAsservatWeaponLinks((current) => {
+      if (!(id in current)) return current;
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+  }
+
+  function getLinkedWeaponIdSet(record: Pick<StrafanzeigeRecord, "asservatWeaponLinks">) {
+    return new Set(Object.values(record.asservatWeaponLinks ?? {}).filter(Boolean));
+  }
+
+  function syncWeaponsToAnzeige(records: WeaponRecord[], sourceRecord: StrafanzeigeRecord): WeaponRecord[] {
+    const selectedWeaponIds = getLinkedWeaponIdSet(sourceRecord);
+
+    return records.map((record) => {
+      if (selectedWeaponIds.has(record.id)) {
+        return {
+          ...record,
+          status: "Beschlagnahmt",
+          linkedStrafanzeigeId: sourceRecord.id,
+        };
+      }
+
+      if (record.linkedStrafanzeigeId === sourceRecord.id) {
+        return {
+          ...record,
+          status: record.assignedPersonAkteId && record.besitzer !== "Unbekannt" ? "Registriert" : "Abgemeldet",
+          linkedStrafanzeigeId: null,
+        };
+      }
+
+      return record;
+    });
+  }
+
+  function syncAnzeigeToAkten(records: AktenRecord[], sourceRecord: StrafanzeigeRecord, updatedAt: string): AktenRecord[] {
+    const summary = calculateStrafSummen(sourceRecord.offenseIds, sourceRecord.modifiers);
+    const sentence = `${formatEuroValue(summary.fine)} | ${formatHeValue(summary.he)}`;
+    const titles = getOffensesByIds(sourceRecord.offenseIds).map((entry) => `§ ${entry.paragraph} ${entry.title}`).join(", ");
+
+    return records.map((record): AktenRecord => {
+      if (record.kind !== "personenakte" || !record.person) return record;
+
+      const targetMatch = normalizeSearchValue(record.person.vorNachname) === normalizeSearchValue(sourceRecord.taeter);
+      const cleanedCharges: AktenCharge[] = record.person.strafanzeigen.filter((charge) => charge.id !== sourceRecord.id);
+      const cleanedEntries: AktenEntry[] = record.person.eintraege.filter((entry) => entry.id !== `ENTRY-${sourceRecord.id}`);
+
+      if (!targetMatch) {
+        if (cleanedCharges.length === record.person.strafanzeigen.length && cleanedEntries.length === record.person.eintraege.length) {
+          return record;
+        }
+
+        return {
+          ...record,
+          lastUpdated: updatedAt,
+          person: {
+            ...record.person,
+            strafanzeigen: cleanedCharges,
+            eintraege: cleanedEntries,
+          },
+        };
+      }
+
+      const linkedCharge: AktenCharge = {
+        id: sourceRecord.id,
+        from: sourceRecord.from,
+        taeter: sourceRecord.taeter,
+        officer: sourceRecord.officer,
+        status: sourceRecord.status.toLowerCase(),
+        fahndung: sourceRecord.fahndung,
+      };
+
+      const linkedEntry: AktenEntry = {
+        id: `ENTRY-${sourceRecord.id}`,
+        type: "Straftaten",
+        title: `Strafanzeige ${sourceRecord.id}`,
+        creator: sourceRecord.officer,
+        sentence,
+        date: updatedAt,
+        notes: titles,
+      };
+
+      const shouldCreateAkteneintrag = sourceRecord.status === "Abgeschlossen";
+
+      return {
+        ...record,
+        lastUpdated: updatedAt,
+        person: {
+          ...record.person,
+          strafanzeigen: [...cleanedCharges, linkedCharge],
+          eintraege: shouldCreateAkteneintrag ? [linkedEntry, ...cleanedEntries] : cleanedEntries,
+        },
+      };
+    });
+  }
+
+  function loadRecordIntoForm(recordId: string) {
+    setEditorSaveError("");
+    const record = strafanzeigenRecords.find((entry) => entry.id === recordId);
+    if (!record) return;
+
+    setEditingRecordId(record.id);
+    setSelectedRecordId(record.id);
+    setSelectedOffenseIds(record.offenseIds);
+    setSelectedAsservatIds(record.asservatenIds ?? []);
+    setAsservatWeaponLinks(record.asservatWeaponLinks ?? {});
+    setSearch("");
+    setAsservatSearch("");
+    setLawFilter("alle");
+    setForm({
+      from: record.from === "—" ? "" : record.from,
+      taeter: record.taeter,
+      officer: record.officer,
+      status: record.status,
+      notes: record.notes,
+      confession: record.modifiers.confession,
+      repeatOffender: record.modifiers.repeatOffender,
+    });
+    setViewMode("editor");
+  }
+
+  function saveAnzeige() {
+    const missingFields: string[] = [];
+    if (!form.taeter.trim()) missingFields.push("Täter");
+    if (!form.officer.trim()) missingFields.push("Officer / Bearbeiter");
+    if (!selectedOffenseIds.length) missingFields.push("mindestens ein Delikt");
+
+    if (missingFields.length) {
+      setEditorSaveError(`Zum Speichern fehlen: ${missingFields.join(", ")}.`);
+      return;
+    }
+
+    setEditorSaveError("");
+    const updatedAt = formatDateTimeStamp(new Date());
+
+    if (editingRecordId) {
+      const currentRecord = strafanzeigenRecords.find((record) => record.id === editingRecordId);
+      if (!currentRecord) return;
+
+      const updatedRecord: StrafanzeigeRecord = {
+        ...currentRecord,
+        from: form.from.trim() || "—",
+        taeter: form.taeter.trim(),
+        officer: form.officer.trim(),
+        status: form.status,
+        offenseIds: [...selectedOffenseIds],
+        modifiers: { confession: form.confession, repeatOffender: form.repeatOffender },
+        notes: form.notes.trim(),
+        asservatenIds: [...selectedAsservatIds],
+        asservatWeaponLinks: Object.fromEntries(
+          Object.entries(asservatWeaponLinks).filter(([asservatId, weaponId]) => selectedAsservatIds.includes(asservatId) && weaponId)
+        ),
+        fahndung: form.status === "Gesucht",
+      };
+
+      const releasedWeaponIds = new Set(
+        [...getLinkedWeaponIdSet(currentRecord)].filter((weaponId) => !getLinkedWeaponIdSet(updatedRecord).has(weaponId))
+      );
+
+      setStrafanzeigenRecords((prev) => prev.map((record) => (record.id === editingRecordId ? updatedRecord : record)));
+      setWeaponRecords((prev) => syncWeaponsToAnzeige(prev, updatedRecord));
+      if (releasedWeaponIds.size) {
+        setAsservatenItems((prev) => prev.filter((item) => !item.weaponRecordId || !releasedWeaponIds.has(item.weaponRecordId)));
+      }
+      setAktenRecords((prev) => syncAnzeigeToAkten(prev, updatedRecord, updatedAt));
+      setSelectedRecordId(updatedRecord.id);
+      setViewMode("viewer");
+      setEditingRecordId(null);
+      return;
+    }
+
+    const newRecord: StrafanzeigeRecord = {
+      id: createStrafanzeigenId(strafanzeigenRecords.length),
+      from: form.from.trim() || "—",
+      taeter: form.taeter.trim(),
+      officer: form.officer.trim(),
+      status: form.status,
+      createdAt: updatedAt,
+      offenseIds: [...selectedOffenseIds],
+      modifiers: { confession: form.confession, repeatOffender: form.repeatOffender },
+      notes: form.notes.trim(),
+      asservatenIds: [...selectedAsservatIds],
+      asservatWeaponLinks: Object.fromEntries(
+        Object.entries(asservatWeaponLinks).filter(([asservatId, weaponId]) => selectedAsservatIds.includes(asservatId) && weaponId)
+      ),
+      fahndung: form.status === "Gesucht",
+    };
+
+    setStrafanzeigenRecords((prev) => [newRecord, ...prev]);
+    setWeaponRecords((prev) => syncWeaponsToAnzeige(prev, newRecord));
+    setAktenRecords((prev) => syncAnzeigeToAkten(prev, newRecord, updatedAt));
+    setSelectedRecordId(newRecord.id);
+    setViewMode("viewer");
+    setEditingRecordId(null);
+  }
+
+  function updateSelectedRecordStatus(nextStatus: StrafanzeigeStatus) {
+    if (!selectedRecord) return;
+    const updatedAt = formatDateTimeStamp(new Date());
+    const updatedRecord: StrafanzeigeRecord = {
+      ...selectedRecord,
+      status: nextStatus,
+      fahndung: nextStatus === "Gesucht",
+    };
+
+    setStrafanzeigenRecords((prev) => prev.map((record) => (record.id === selectedRecord.id ? updatedRecord : record)));
+    setAktenRecords((prev) => syncAnzeigeToAkten(prev, updatedRecord, updatedAt));
+
+    if (editingRecordId === selectedRecord.id) {
+      setForm((current) => ({
+        ...current,
+        status: nextStatus,
+      }));
+    }
+  }
+
+  const listMarkup = (
+    <div className="rounded-2xl border border-white/8 bg-black/15 p-5">
+      <SectionTitle
+        title="Vorhandene Strafanzeigen"
+        action={<UiButton onClick={beginCreateAnzeige} variant="red">Neue Strafanzeige erstellen</UiButton>}
+      />
+      <div className="grid gap-4 xl:grid-cols-[1fr_220px]">
+        <FancyInput value={listSearch} onChange={(event) => setListSearch(event.target.value)} className="ui-input" placeholder="Nach ID, Täter oder Officer suchen..." />
+        <FancySelect value={statusFilter} onChange={(value) => setStatusFilter(value as "alle" | StrafanzeigeStatus)} options={[{ value: "alle", label: "Alle Stati" }, ...statusSelectOptions]} />
+      </div>
+
+      <div className="mt-4 space-y-3">
+        {visibleRecords.length ? (
+          visibleRecords.map((record) => {
+            const totals = calculateStrafSummen(record.offenseIds, record.modifiers);
+            return (
+              <button
+                key={record.id}
+                type="button"
+                onClick={() => setSelectedRecordId(record.id)}
+                className={`w-full rounded-2xl border px-4 py-4 text-left transition ${effectiveSelectedRecordId === record.id ? "border-red-400/40 bg-red-500/10" : "border-white/8 bg-white/[0.03] hover:bg-white/[0.06]"}`}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-semibold text-white">{record.id}</p>
+                    <p className="mt-1 text-sm text-white/70">{record.taeter} · {record.officer}</p>
+                    <p className="mt-2 text-xs text-white/45">{record.createdAt} · {record.from}</p>
+                  </div>
+                  <div className="flex flex-col items-end gap-2">
+                    <StatusBadge text={getStrafanzeigeStatusMeta(record.status).label} tone={getStrafanzeigeStatusMeta(record.status).tone} />
+                    {editingRecordId === record.id ? <span className="rounded-full border border-sky-400/30 bg-sky-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-100">Im Formular</span> : null}
+                  </div>
+                </div>
+                <p className="mt-3 text-xs text-white/50">{formatEuroValue(totals.fine)} · {formatHeValue(totals.he)}</p>
+              </button>
+            );
+          })
+        ) : (
+          <div className="rounded-xl border border-white/8 bg-white/[0.03] px-4 py-6 text-sm text-white/50">Keine Strafanzeigen für den aktuellen Filter.</div>
+        )}
+      </div>
+    </div>
+  );
+
+  const detailsMarkup = (
+    <div className="rounded-2xl border border-white/8 bg-black/15 p-5">
+      <SectionTitle title="Details" action={selectedRecord ? <StatusBadge text={selectedRecordStatusMeta?.label ?? selectedRecord.status} tone={selectedRecordStatusMeta?.tone} /> : undefined} />
+      {selectedRecord ? (
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+            <p className="text-lg font-semibold text-white">{selectedRecord.id}</p>
+            <p className="mt-1 text-sm text-white/60">{selectedRecord.taeter} · {selectedRecord.officer}</p>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              <InfoCard label="Von" value={selectedRecord.from} />
+              <InfoCard label="Erstellt" value={selectedRecord.createdAt} />
+              <InfoCard label="Status" value={selectedRecordStatusMeta?.label ?? selectedRecord.status} />
+              <InfoCard label="Gesamtgeld" value={selectedRecordTotals ? formatEuroValue(selectedRecordTotals.fine) : "---"} />
+              <InfoCard label="Gesamthaft" value={selectedRecordTotals ? formatHeValue(selectedRecordTotals.he) : "---"} />
+              <InfoCard label="Delikte" value={String(selectedRecordOffenses.length)} />
+            </div>
+
+            {selectedRecord.notes ? <p className="mt-4 text-sm leading-6 text-white/65">{selectedRecord.notes}</p> : null}
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_220px]">
+            <UiButton onClick={() => openRecordViewer(selectedRecord.id)} variant="red">Strafanzeige öffnen</UiButton>
+            <UiButton onClick={() => loadRecordIntoForm(selectedRecord.id)} variant="ghost">Strafanzeige bearbeiten</UiButton>
+            <FancySelect value={selectedRecord.status} onChange={(value) => updateSelectedRecordStatus(value as StrafanzeigeStatus)} options={statusSelectOptions} />
+          </div>
+
+          {selectedRecordAsservaten.length ? (
+            <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+              <p className="text-xs uppercase tracking-[0.2em] text-white/38">Abgenommene Gegenstände</p>
+              <div className="mt-4 space-y-2">
+                {selectedRecordAsservaten.map((entry) => {
+                  const linkedWeapon = resolveWeaponForRecordAsservat(selectedRecord, entry!.id, entry!.label);
+                  const linkedStorage = linkedWeapon ? weaponStorageLookup[linkedWeapon.id] ?? null : null;
+                  const linkedSchrank = linkedStorage ? schrankLookup[linkedStorage.schrankId] ?? null : null;
+
+                  return (
+                    <div key={entry!.id} className="rounded-xl border border-white/8 bg-black/20 px-4 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-semibold text-white">{entry!.label}</p>
+                        <span className="text-[11px] uppercase tracking-[0.18em] text-white/35">{entry!.category}</span>
+                      </div>
+                      {entry!.category === "Waffe" ? (
+                        <div className="mt-2 space-y-1 text-xs text-white/58">
+                          <p className="text-cyan-200/85">Lizenznummer / Seriennummer: {linkedWeapon?.serial ?? "Nicht hinterlegt"}</p>
+                          {linkedWeapon ? <p>Eigentümer: {linkedWeapon.besitzer}</p> : null}
+                          {linkedWeapon ? (
+                            <p className={linkedSchrank ? "text-emerald-200/80" : "text-amber-200/85"}>
+                              Lagerort: {linkedSchrank ? `Asservatenkammer · ${linkedSchrank.name}` : "Noch nicht zugeordnet"}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+              <p className="text-xs uppercase tracking-[0.2em] text-white/38">Abgenommene Gegenstände</p>
+              <div className="mt-4 rounded-xl border border-white/8 bg-black/20 px-4 py-3 text-sm text-white/50">Keine Gegenstände erfasst.</div>
+            </div>
+          )}
+
+          {selectedRecordOffenses.length ? (
+            <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+              <p className="text-xs uppercase tracking-[0.2em] text-white/38">Verknüpfte Delikte</p>
+              <div className="mt-4 space-y-2">
+                {selectedRecordOffenses.map((entry) => (
+                  <div key={entry.id} className="rounded-xl border border-white/8 bg-black/20 px-4 py-3">
+                    <p className="text-sm font-semibold text-white">§ {entry.paragraph} · {entry.title}</p>
+                    <p className="mt-2 text-xs text-white/45">{formatStrafMeta(entry)}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <div className="rounded-xl border border-white/8 bg-white/[0.03] px-4 py-6 text-sm text-white/50">Wähle links eine Strafanzeige aus.</div>
+      )}
+    </div>
+  );
+
+  if (viewMode === "overview") {
+    return (
+      <AppShell breadcrumb="Hammer Modding CopLink / Strafanzeigen" title="Strafanzeigen">
+        <div className="space-y-5">
+          <div className="rounded-2xl border border-white/8 bg-black/15 p-5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <SectionTitle title="Strafanzeigen-Datenbank" />
+                <p className="max-w-3xl text-sm text-white/60">Hier bekommst du zuerst den Gesamtüberblick über alle vorhandenen Strafanzeigen. Über Öffnen siehst du die fertige Anzeige, über Bearbeiten springst du direkt in das Formular.</p>
+              </div>
+              <UiButton onClick={beginCreateAnzeige} variant="red">Neue Strafanzeige erstellen</UiButton>
+            </div>
+
+            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+              <InfoCard label="Gesamt" value={String(recordStats.total)} />
+              <InfoCard label="Erstellt" value={String(recordStats.erstellt)} />
+              <InfoCard label="Gesucht" value={String(recordStats.gesucht)} />
+              <InfoCard label="Abgeschlossen" value={String(recordStats.abgeschlossen)} />
+              <InfoCard label="Mit Haft" value={String(recordStats.mitHaft)} />
+            </div>
+          </div>
+
+          <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
+            {listMarkup}
+            {detailsMarkup}
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (viewMode === "viewer" && selectedRecord) {
+    return (
+      <AppShell breadcrumb="Hammer Modding CopLink / Strafanzeigen" title="Strafanzeige öffnen">
+        <div className="space-y-5">
+          <div className="rounded-2xl border border-white/8 bg-black/15 p-5">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <SectionTitle title={`Strafanzeige · ${selectedRecord.id}`} />
+                <p className="text-sm text-white/58">Ansichtsmodus der fertigen Strafanzeige. Hier wird nichts direkt verändert.</p>
+              </div>
+              <ActionBar className="gap-2">
+                <UiButton onClick={() => setViewMode("overview")} variant="ghost">Zur Übersicht</UiButton>
+                <UiButton onClick={() => loadRecordIntoForm(selectedRecord.id)} variant="red">Strafanzeige bearbeiten</UiButton>
+              </ActionBar>
+            </div>
+          </div>
+
+          <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+            <div className="space-y-5">
+              <div className="rounded-2xl border border-white/8 bg-black/15 p-5">
+                <div className="grid gap-4 xl:grid-cols-2">
+                  <InfoCard label="Von" value={selectedRecord.from} />
+                  <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+                    <p className="text-xs uppercase tracking-[0.22em] text-white/38">Status</p>
+                    <div className="mt-3 flex items-center gap-3">
+                      <StatusBadge text={selectedRecordStatusMeta?.label ?? selectedRecord.status} tone={selectedRecordStatusMeta?.tone} />
+                      <span className="text-sm text-white/55">{selectedRecordStatusMeta?.description ?? "Status ohne zusätzliche Beschreibung."}</span>
+                    </div>
+                  </div>
+                  <InfoCard label="Täter" value={selectedRecord.taeter} />
+                  <InfoCard label="Officer / Bearbeiter" value={selectedRecord.officer} />
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+                  <p className="text-xs uppercase tracking-[0.22em] text-white/38">Sachverhalt / Notizen</p>
+                  <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-white/72">{selectedRecord.notes || "Keine zusätzlichen Notizen hinterlegt."}</p>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/8 bg-black/15 p-5">
+                <SectionTitle title="Verknüpfte Straftaten" />
+                <div className="space-y-3">
+                  {selectedRecordOffenses.length ? (
+                    selectedRecordOffenses.map((entry) => (
+                      <div key={entry.id} className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-4">
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-semibold text-white">§ {entry.paragraph} · {entry.title}</p>
+                            <p className="mt-2 text-xs text-white/45">{formatStrafMeta(entry)}</p>
+                          </div>
+                          {entry.notes !== "—" ? <span className="text-xs text-amber-200/80">{entry.notes}</span> : null}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-xl border border-white/8 bg-white/[0.03] px-4 py-6 text-sm text-white/50">Keine Delikte verknüpft.</div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-5">
+              <div className="rounded-2xl border border-white/8 bg-black/15 p-5">
+                <SectionTitle title="Automatische Berechnung" />
+                <div className="grid gap-4 md:grid-cols-2">
+                  <InfoCard label="Gesamtgeld" value={selectedRecordTotals ? formatEuroValue(selectedRecordTotals.fine) : "---"} />
+                  <InfoCard label="Gesamthaft" value={selectedRecordTotals ? formatHeValue(selectedRecordTotals.he) : "---"} />
+                  <InfoCard label="Verkehrspunkte" value={selectedRecordTotals ? formatPointsValue(selectedRecordTotals.points) : "---"} />
+                  <InfoCard label="Modifier" value={selectedRecordTotals ? `${Math.round(selectedRecordTotals.factor * 100)}%` : "---"} />
+                  <InfoCard label="Erstellt" value={selectedRecord.createdAt} />
+                  <InfoCard label="Status" value={selectedRecordStatusMeta?.label ?? selectedRecord.status} />
+                </div>
+                {selectedRecordTotals?.heWasCapped ? <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">Die berechnete Haftzeit wurde automatisch auf 180 HE gedeckelt.</div> : null}
+              </div>
+
+              <div className="rounded-2xl border border-white/8 bg-black/15 p-5">
+                <SectionTitle title="Regelmodifikatoren" />
+                <div className="space-y-3 text-sm text-white/75">
+                  <div className="rounded-xl border border-white/6 bg-black/20 px-4 py-3">Geständnis / Kooperation: <span className="font-semibold text-white">{selectedRecord.modifiers.confession ? "Ja" : "Nein"}</span></div>
+                  <div className="rounded-xl border border-white/6 bg-black/20 px-4 py-3">Wiederholungstäter: <span className="font-semibold text-white">{selectedRecord.modifiers.repeatOffender ? "Ja" : "Nein"}</span></div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/8 bg-black/15 p-5">
+                <SectionTitle title="Beschlagnahmte Gegenstände" />
+                <div className="space-y-3">
+                  {selectedRecordAsservaten.length ? selectedRecordAsservaten.map((entry) => {
+                    const linkedWeapon = resolveWeaponForRecordAsservat(selectedRecord, entry!.id, entry!.label);
+                    const linkedStorage = linkedWeapon ? weaponStorageLookup[linkedWeapon.id] ?? null : null;
+                    const linkedSchrank = linkedStorage ? schrankLookup[linkedStorage.schrankId] ?? null : null;
+
+                    return (
+                      <div key={entry!.id} className="rounded-xl border border-white/6 bg-black/20 px-4 py-3 text-sm text-white/75">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-medium text-white">{entry!.label}</span>
+                          <span className="text-xs uppercase tracking-[0.18em] text-white/35">{entry!.category}</span>
+                        </div>
+                        {entry!.category === "Waffe" ? (
+                          <div className="mt-3 space-y-1 text-xs">
+                            <p className="text-cyan-200/80">Lizenznummer / Seriennummer: {linkedWeapon?.serial ?? "Nicht hinterlegt"}</p>
+                            {linkedWeapon ? <p className="text-white/58">Eigentümer: {linkedWeapon.besitzer}</p> : null}
+                            {linkedWeapon ? (
+                              <p className={linkedSchrank ? "text-emerald-200/80" : "text-amber-200/85"}>
+                                Lagerort: {linkedSchrank ? `Asservatenkammer · ${linkedSchrank.name}` : "Noch nicht zugeordnet"}
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  }) : (
+                    <div className="rounded-xl border border-white/8 bg-white/[0.03] px-4 py-6 text-sm text-white/50">Keine beschlagnahmten Gegenstände hinterlegt.</div>
+                  )}
+                </div>
+                {linkedWeaponsForSelectedRecord.length ? (
+                  <div className="mt-4 rounded-xl border border-red-400/20 bg-red-500/10 px-4 py-4 text-sm text-red-100">
+                    <p className="font-semibold">Verknüpfte Waffen aus dem Waffenregister</p>
+                    <div className="mt-3 space-y-2 text-red-50/90">
+                      {linkedWeaponsForSelectedRecord.map((weapon) => {
+                        const storage = weaponStorageLookup[weapon.id] ?? null;
+                        const schrank = storage ? schrankLookup[storage.schrankId] ?? null : null;
+
+                        return (
+                          <div key={weapon.id} className="flex items-center justify-between gap-3 rounded-xl border border-red-400/15 bg-black/20 px-3 py-2">
+                            <div>
+                              <span>{weapon.weapon} · {weapon.serial}</span>
+                              <p className={`mt-1 text-[11px] ${schrank ? "text-emerald-200/80" : "text-amber-200/80"}`}>
+                                {schrank ? `Gelagert in ${schrank.name}` : "Noch keinem Schrank zugeordnet"}
+                              </p>
+                            </div>
+                            <span className="text-xs uppercase tracking-[0.18em] text-red-100/80">Beschlagnahmt</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="rounded-2xl border border-white/8 bg-black/15 p-5">
+                <SectionTitle title="Personenakte" />
+                {selectedRecordAkte && selectedRecordAkte.person ? (
+                  <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+                    <p className="text-sm font-semibold text-white">{selectedRecordAkte.person.vorNachname}</p>
+                    <p className="mt-1 text-xs text-white/45">Aktennummer {selectedRecordAkte.person.aktennummer}</p>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <StatusBadge text={`Sicherheitsstufe ${selectedRecordAkte.person.sicherheitsstufe ?? 0}`} />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-white/8 bg-white/[0.03] px-4 py-6 text-sm text-white/50">Keine direkt verknüpfte Personenakte gefunden.</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
+
+  return (
+    <AppShell breadcrumb="Hammer Modding CopLink / Strafanzeigen" title="Strafanzeige bearbeiten">
+      <div className="space-y-5">
+        <div className="rounded-2xl border border-white/8 bg-black/15 p-5">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <SectionTitle title={editingRecordId ? `Strafanzeige bearbeiten · ${editingRecordId}` : "Neue Strafanzeige"} />
+              <p className="text-sm text-white/58">Bearbeitungsmodus der Strafanzeige. Hier trägst du die Kerndaten, Delikte und Berechnung vollständig ein.</p>
+            </div>
+            <ActionBar className="gap-2">
+              <UiButton onClick={() => setViewMode("overview")} variant="ghost">Zur Übersicht</UiButton>
+              <UiButton onClick={clearEditorForm} variant="inline">Formular leeren</UiButton>
+            </ActionBar>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-white/8 bg-black/15 p-5">
+          <div className="grid gap-4 xl:grid-cols-2">
+            <FieldBlock label="Von">
+              <FancySelect value={form.from} onChange={(value) => setForm((current) => ({ ...current, from: value }))} options={fromSelectOptions} />
+            </FieldBlock>
+            <FieldBlock label="Status">
+              <FancySelect
+                value={form.status}
+                onChange={(value) => setForm((current) => ({ ...current, status: value as StrafanzeigeStatus }))}
+                options={statusSelectOptions}
+              />
+              <div className="mt-3 flex items-center gap-3">
+                <StatusBadge text={formStatusMeta.label} tone={formStatusMeta.tone} />
+                <span className={`text-sm ${formHasFahndung ? "text-rose-200" : "text-white/45"}`}>
+                  {formStatusMeta.formHint}
+                </span>
+              </div>
+            </FieldBlock>
+            <FieldBlock label="Täter">
+              <FancySelect value={form.taeter} onChange={(value) => {
+                setEditorSaveError("");
+                setForm((current) => ({ ...current, taeter: value }));
+              }} options={taeterSelectOptions} placeholder="Täter auswählen" />
+            </FieldBlock>
+            <FieldBlock label="Officer / Bearbeiter">
+              <FancyInput value={form.officer} onChange={(event) => {
+                setEditorSaveError("");
+                setForm((current) => ({ ...current, officer: event.target.value }));
+              }} className="ui-input" placeholder="Officer oder Agent" />
+            </FieldBlock>
+          </div>
+
+          <div className="mt-5 grid gap-4 xl:grid-cols-[1fr_300px]">
+            <FieldBlock label="Notizen / Sachverhalt">
+              <FancyTextarea
+                value={form.notes}
+                onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
+                className="mt-2 block h-[230px] w-full rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-4 text-sm leading-6 text-white outline-none transition placeholder:text-white/18 focus:border-red-400/30 focus:bg-white/[0.05]"
+                placeholder=""
+              />
+            </FieldBlock>
+            <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+              <p className="text-xs uppercase tracking-[0.2em] text-white/38">Regelmodifikatoren</p>
+              <div className="mt-4 space-y-3 text-sm text-white/75">
+                <label className="flex items-center justify-between gap-3 rounded-xl border border-white/6 bg-black/20 px-3 py-3">
+                  <span>Geständnis / Kooperation (-25%)</span>
+                  <FancyCheckbox checked={form.confession} onChange={(event) => setForm((current) => ({ ...current, confession: event.target.checked }))} />
+                </label>
+                <label className="flex items-center justify-between gap-3 rounded-xl border border-white/6 bg-black/20 px-3 py-3">
+                  <span>Wiederholungstäter (+25%)</span>
+                  <FancyCheckbox checked={form.repeatOffender} onChange={(event) => setForm((current) => ({ ...current, repeatOffender: event.target.checked }))} />
+                </label>
+              </div>
+              <p className="mt-5 text-xs text-white/38">HE werden automatisch bei 180 gedeckelt. Punkte bleiben unverändert.</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-white/8 bg-black/15 p-5">
+          <SectionTitle title="Straftaten auswählen" />
+          <div className="grid gap-4 xl:grid-cols-[1fr_250px]">
+            <FancyInput value={search} onChange={(event) => setSearch(event.target.value)} className="ui-input" placeholder="Paragraph oder Delikt suchen..." />
+            <FancySelect value={lawFilter} onChange={(value) => setLawFilter(value as "alle" | StrafgesetzId)} options={[{ value: "alle", label: "Alle Gesetzbücher" }, ...STRAFGESETZE.map((law) => ({ value: law.id, label: law.label }))]} />
+          </div>
+
+          <div className="mt-4 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+            <div className="rounded-2xl border border-white/8 bg-black/20 p-3">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <p className="text-xs uppercase tracking-[0.22em] text-white/40">Trefferliste</p>
+                <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">{filteredCatalog.length} Treffer</p>
+              </div>
+              <div className="max-h-[360px] space-y-2 overflow-auto pr-1">
+                {filteredCatalog.length ? (
+                  filteredCatalog.map((entry) => (
+                    <button key={entry.id} type="button" onClick={() => addOffense(entry.id)} className="flex w-full items-start justify-between gap-4 rounded-xl border border-white/8 bg-white/[0.03] px-4 py-4 text-left transition hover:border-red-400/30 hover:bg-white/[0.06]">
+                      <div>
+                        <p className="text-sm font-semibold text-white">§ {entry.paragraph} · {entry.title}</p>
+                        <p className="mt-2 text-xs text-white/45">{formatStrafMeta(entry)}</p>
+                      </div>
+                      <span className="rounded-full border border-red-400/30 bg-red-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-red-100">Add</span>
+                    </button>
+                  ))
+                ) : (
+                  <div className="rounded-xl border border-white/8 bg-white/[0.03] px-4 py-6 text-sm text-white/50">Keine weiteren Treffer.</div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-white/8 bg-black/20 p-3">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <p className="text-xs uppercase tracking-[0.22em] text-white/40">Ausgewählte Delikte</p>
+                <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">{selectedOffenses.length} aktiv</p>
+              </div>
+              <div className="max-h-[360px] space-y-2 overflow-auto pr-1">
+                {selectedOffenses.length ? (
+                  selectedOffenses.map((entry) => (
+                    <div key={entry.id} className="rounded-xl border border-white/8 bg-white/[0.03] px-4 py-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-semibold text-white">§ {entry.paragraph} · {entry.title}</p>
+                          <p className="mt-2 text-xs text-white/45">{formatStrafMeta(entry)}</p>
+                        </div>
+                        <UiButton onClick={() => removeOffense(entry.id)} variant="inline">Entfernen</UiButton>
+                      </div>
+                      {entry.notes !== "—" ? <p className="mt-3 text-xs text-amber-200/80">{entry.notes}</p> : null}
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-xl border border-white/8 bg-white/[0.03] px-4 py-6 text-sm text-white/50">Noch keine Straftat ausgewählt.</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-white/8 bg-black/15 p-5">
+          <SectionTitle title="Beschlagnahmte Gegenstände" />
+          <p className="text-sm text-white/58">Hier kannst du Gegenstände erfassen, die im Rahmen dieser Strafanzeige sichergestellt oder beschlagnahmt wurden. Das ist der erste Schritt Richtung Asservatenkammer.</p>
+          <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_1fr]">
+            <div className="rounded-2xl border border-white/8 bg-black/20 p-3">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <p className="text-xs uppercase tracking-[0.22em] text-white/40">Gegenstand auswählen</p>
+                <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">{filteredAsservaten.length} Treffer</p>
+              </div>
+              <FancyInput value={asservatSearch} onChange={(event) => setAsservatSearch(event.target.value)} className="ui-input" placeholder="Waffe, Handy, Tablet oder GPS suchen..." />
+              <div className="mt-3 max-h-[280px] space-y-2 overflow-auto pr-1">
+                {filteredAsservaten.length ? filteredAsservaten.map((entry) => (
+                  <button key={entry.id} type="button" onClick={() => addAsservat(entry.id)} className="flex w-full items-start justify-between gap-4 rounded-xl border border-white/8 bg-white/[0.03] px-4 py-4 text-left transition hover:border-red-400/30 hover:bg-white/[0.06]">
+                    <div>
+                      <p className="text-sm font-semibold text-white">{entry.label}</p>
+                      <p className="mt-2 text-xs uppercase tracking-[0.18em] text-white/35">{entry.category}</p>
+                    </div>
+                    <span className="rounded-full border border-red-400/30 bg-red-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-red-100">Add</span>
+                  </button>
+                )) : (
+                  <div className="rounded-xl border border-white/8 bg-white/[0.03] px-4 py-6 text-sm text-white/50">Keine weiteren Gegenstände gefunden.</div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-white/8 bg-black/20 p-3">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <p className="text-xs uppercase tracking-[0.22em] text-white/40">Ausgewählte Gegenstände</p>
+                <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">{selectedAsservaten.length} aktiv</p>
+              </div>
+              <div className="max-h-[320px] space-y-2 overflow-auto pr-1">
+                {selectedAsservaten.length ? selectedAsservaten.map((entry) => {
+                  const linkedWeapon = selectedAsservatWeaponLookup[entry!.id];
+                  const serialOptions = selectedAsservatWeaponOptions[entry!.id] ?? [];
+                  return (
+                  <div key={entry!.id} className="rounded-xl border border-white/8 bg-white/[0.03] px-4 py-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-semibold text-white">{entry!.label}</p>
+                        <p className="mt-2 text-xs uppercase tracking-[0.18em] text-white/35">{entry!.category}</p>
+                      </div>
+                      <UiButton onClick={() => removeAsservat(entry!.id)} variant="inline">Entfernen</UiButton>
+                    </div>
+                    {entry!.category === "Waffe" ? (
+                      <div className="mt-4 max-w-[320px]">
+                        <FieldBlock label="Seriennummer aus Waffenregister">
+                          <FancySelect
+                            value={asservatWeaponLinks[entry!.id] ?? ""}
+                            onChange={(value) => updateAsservatWeaponLink(entry!.id, value)}
+                            options={[{ value: "", label: "Seriennummer auswählen" }, ...serialOptions]}
+                            placeholder="Seriennummer auswählen"
+                          />
+                        </FieldBlock>
+                        {linkedWeapon ? (
+                          <p className="mt-2 text-xs text-cyan-200/80">Verknüpft: {linkedWeapon.serial} · {linkedWeapon.besitzer}</p>
+                        ) : serialOptions.length ? null : (
+                          <p className="mt-2 text-xs text-white/38">Keine passende registrierte Waffe im Waffenregister gefunden.</p>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                )}) : (
+                  <div className="rounded-xl border border-white/8 bg-white/[0.03] px-4 py-6 text-sm text-white/50">Noch keine beschlagnahmten Gegenstände ausgewählt.</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-white/8 bg-black/15 p-5">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <SectionTitle title="Automatische Berechnung" />
+            <UiButton onClick={saveAnzeige} variant="red">{editingRecordId ? "Änderungen speichern" : "Strafanzeige speichern"}</UiButton>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-4">
+            <InfoCard label="Gesamtgeld" value={formatEuroValue(liveTotals.fine)} />
+            <InfoCard label="Gesamthaft" value={formatHeValue(liveTotals.he)} />
+            <InfoCard label="Verkehrspunkte" value={formatPointsValue(liveTotals.points)} />
+            <InfoCard label="Modifier" value={`${Math.round(liveTotals.factor * 100)}%`} />
+          </div>
+          {liveTotals.heWasCapped ? <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">Die berechnete Haftzeit wurde automatisch auf 180 HE gedeckelt.</div> : null}
+          {editorSaveError ? <div className="mt-4 rounded-2xl border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">{editorSaveError}</div> : null}
+          {!form.taeter.trim() || !form.officer.trim() || !selectedOffenseIds.length ? <p className="mt-4 text-sm text-white/45">Zum Speichern brauchst du Täter, Officer und mindestens ein Delikt.</p> : null}
+        </div>
+      </div>
+    </AppShell>
+  );
+}
+
+function OfficerApp() {
+  const { aktenRecords, officerRecords, setOfficerRecords } = useContext(RecordsContext);
+  const [createMode, setCreateMode] = useState(false);
+  const [feedback, setFeedback] = useState<null | { tone: BadgeTone; text: string }>(null);
+  const [now, setNow] = useState(() => new Date());
+  const [officerForm, setOfficerForm] = useState({
+    personAkteId: "",
+    dienstnummer: "",
+    rolle: "Officer",
+  });
+
+  const availablePersonOptions = useMemo(() => (
+    aktenRecords
+      .filter((record) => record.kind === "personenakte" && record.person && !officerRecords.some((officer) => officer.personAkteId === record.id))
+      .map((record) => ({
+        value: record.id,
+        label: `${record.person?.vorNachname ?? record.title} · ${record.id}`,
+      }))
+  ), [aktenRecords, officerRecords]);
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const officerCards = useMemo(() => (
+    officerRecords
+      .map((officer) => ({
+        officer,
+        personRecord: aktenRecords.find((record) => record.id === officer.personAkteId && record.kind === "personenakte") ?? null,
+      }))
+      .filter((entry) => entry.personRecord && entry.personRecord.kind === "personenakte" && entry.personRecord.person)
+      .sort((left, right) => {
+        const leftName = left.personRecord?.person?.vorNachname ?? "";
+        const rightName = right.personRecord?.person?.vorNachname ?? "";
+        return leftName.localeCompare(rightName, "de");
+      })
+  ), [aktenRecords, officerRecords]);
+
+  useEffect(() => {
+    if (!availablePersonOptions.length) return;
+    setOfficerForm((current) => current.personAkteId ? current : ({ ...current, personAkteId: availablePersonOptions[0]?.value ?? "" }));
+  }, [availablePersonOptions]);
+
+  function openCreateOfficer() {
+    setFeedback(null);
+    setOfficerForm({
+      personAkteId: availablePersonOptions[0]?.value ?? "",
+      dienstnummer: "",
+      rolle: "Officer",
+    });
+    setCreateMode(true);
+  }
+
+  function saveOfficer() {
+    const personAkteId = officerForm.personAkteId;
+    const dienstnummer = officerForm.dienstnummer.trim();
+    const rolle = officerForm.rolle.trim() || "Officer";
+
+    if (!personAkteId || !dienstnummer) {
+      setFeedback({ tone: "red", text: "Bitte Person und Dienstnummer angeben." });
+      return;
+    }
+
+    if (officerRecords.some((record) => record.dienstnummer.trim().toLowerCase() === dienstnummer.toLowerCase())) {
+      setFeedback({ tone: "red", text: "Diese Dienstnummer ist bereits vergeben." });
+      return;
+    }
+
+    if (officerRecords.some((record) => record.personAkteId === personAkteId)) {
+      setFeedback({ tone: "red", text: "Diese Person ist bereits als Officer hinterlegt." });
+      return;
+    }
+
+    setOfficerRecords((prev) => ([
+      {
+        id: `off-${Date.now()}`,
+        personAkteId,
+        dienstnummer,
+        rolle,
+        totalDutyMinutes: 0,
+        currentShiftStartedAt: null,
+        shiftHistory: [],
+      },
+      ...prev,
+    ]));
+    setCreateMode(false);
+    setFeedback({ tone: "green", text: "Officer erfolgreich angelegt." });
+  }
+
+  function removeOfficer(officerId: string) {
+    const target = officerRecords.find((record) => record.id === officerId);
+    if (!target) return;
+
+    if (target.currentShiftStartedAt) {
+      setFeedback({ tone: "red", text: "Officer kann nicht entfernt werden, solange er eingestempelt ist." });
+      return;
+    }
+
+    setOfficerRecords((prev) => prev.filter((record) => record.id !== officerId));
+    setFeedback({ tone: "green", text: "Officer wurde entfernt." });
+  }
+
+  return (
+    <AppShell
+      breadcrumb="Hammer Modding CopLink / Officer"
+      title="Officer Übersicht"
+      actions={
+        <ActionBar>
+          <UiButton onClick={openCreateOfficer} variant="green">Officer hinzufügen</UiButton>
+        </ActionBar>
+      }
+    >
+      {feedback ? (
+        <div className="mb-5">
+          <StatusBadge text={feedback.text} tone={feedback.tone} />
+        </div>
+      ) : null}
+
+      {createMode ? (
+        <div className="mb-5 rounded-2xl border border-white/8 bg-white/[0.03] p-5">
+          <SectionTitle title="Officer hinzufügen" />
+          <div className="grid gap-4 md:grid-cols-3">
+            <FieldBlock label="Personenakte">
+              <FancySelect
+                value={officerForm.personAkteId}
+                onChange={(value) => setOfficerForm((current) => ({ ...current, personAkteId: value }))}
+                options={availablePersonOptions}
+                placeholder={availablePersonOptions.length ? "Person auswählen" : "Keine freie Personenakte verfügbar"}
+              />
+            </FieldBlock>
+            <FieldBlock label="Dienstnummer">
+              <FancyInput
+                value={officerForm.dienstnummer}
+                onChange={(event) => setOfficerForm((current) => ({ ...current, dienstnummer: event.target.value }))}
+                className="ui-input"
+                placeholder="z. B. 32039-77"
+              />
+            </FieldBlock>
+            <FieldBlock label="Rolle / Anzeige">
+              <FancyInput
+                value={officerForm.rolle}
+                onChange={(event) => setOfficerForm((current) => ({ ...current, rolle: event.target.value }))}
+                className="ui-input"
+                placeholder="Officer"
+              />
+            </FieldBlock>
+          </div>
+          <ActionBar className="mt-5">
+            <UiButton onClick={() => setCreateMode(false)} variant="ghost">Abbrechen</UiButton>
+            <UiButton onClick={saveOfficer} variant="green" disabled={!availablePersonOptions.length}>Officer speichern</UiButton>
+          </ActionBar>
+        </div>
+      ) : null}
+
+      <div className="grid gap-5 lg:grid-cols-3">
+        {officerCards.map(({ officer, personRecord }) => {
+          if (!personRecord || personRecord.kind !== "personenakte" || !personRecord.person) return null;
+
+          const person = personRecord.person;
+          const isActive = Boolean(officer.currentShiftStartedAt);
+          const displayedDutyMinutes = getLiveDutyMinutes(officer, now);
+
+          return (
+            <div key={officer.id} className="overflow-hidden rounded-2xl border border-white/8 bg-black/20">
+              <div className={`border-b border-white/6 p-5 ${isActive ? "bg-gradient-to-r from-emerald-900/85 via-emerald-800/75 to-lime-800/70" : "bg-gradient-to-r from-[#16171c] via-[#1b1c24] to-[#24161b]"}`}>
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    <div className="relative h-14 w-14 overflow-hidden rounded-full border border-red-500/20 bg-black/40 shadow-[0_0_20px_rgba(255,0,70,0.12)]">
+                      <Image
+                        src={officerAvatarPlaceholder}
+                        alt="Officer Platzhalter"
+                        fill
+                        sizes="56px"
+                        className="object-cover"
+                      />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-white">{person.vorNachname}</p>
+                      <p className={`text-sm font-semibold ${isActive ? "text-emerald-100" : "text-white/80"}`}>{officer.rolle} {isActive ? "· Im Dienst" : "· Außer Dienst"}</p>
+                    </div>
+                  </div>
+                  <UiButton onClick={() => removeOfficer(officer.id)} variant="red-alt">Entfernen</UiButton>
+                </div>
+              </div>
+
+              <div className="space-y-0 divide-y divide-white/6">
+                {[
+                  ["Dienstnummer", officer.dienstnummer],
+                  ["Sicherheitsstufe", String(person.sicherheitsstufe ?? 0)],
+                  ["Akteneinträge", String(person.eintraege.length)],
+                  ["Laufende Strafanzeigen", String(person.strafanzeigen.length)],
+                  ["Dienststatus", isActive ? "Im Dienst" : "Außer Dienst"],
+                  ["Dienstzeit", formatDutyDuration(displayedDutyMinutes)],
+                ].map(([label, value]) => (
+                  <div key={label} className="flex items-center justify-between gap-3 px-5 py-3 text-sm">
+                    <span className="text-white/60">{label}</span>
+                    <span className={`rounded-md px-2 py-1 font-semibold ${label === "Dienststatus" ? (isActive ? "bg-emerald-500/18 text-emerald-200" : "bg-white/6 text-white/75") : "bg-red-500/15 text-red-200"}`}>{value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {!officerCards.length ? (
+        <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] p-6 text-sm text-white/55">Noch keine Officer angelegt.</div>
+      ) : null}
+    </AppShell>
+  );
+}
+
+function StempeluhrApp() {
+  const { aktenRecords, officerRecords, setOfficerRecords } = useContext(RecordsContext);
+  const [now, setNow] = useState(() => new Date());
+  const [selectedOfficerId, setSelectedOfficerId] = useState<string>("");
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const officerCards = useMemo(() => (
+    officerRecords
+      .map((officer) => ({
+        officer,
+        personRecord: aktenRecords.find((record) => record.id === officer.personAkteId && record.kind === "personenakte") ?? null,
+      }))
+      .filter((entry) => entry.personRecord && entry.personRecord.kind === "personenakte" && entry.personRecord.person)
+      .sort((left, right) => {
+        const leftName = left.personRecord?.person?.vorNachname ?? "";
+        const rightName = right.personRecord?.person?.vorNachname ?? "";
+        return leftName.localeCompare(rightName, "de");
+      })
+  ), [aktenRecords, officerRecords]);
+
+  useEffect(() => {
+    if (!officerCards.length) {
+      if (selectedOfficerId) setSelectedOfficerId("");
+      return;
+    }
+
+    if (!selectedOfficerId || !officerCards.some(({ officer }) => officer.id === selectedOfficerId)) {
+      setSelectedOfficerId(officerCards[0]?.officer.id ?? "");
+    }
+  }, [officerCards, selectedOfficerId]);
+
+  const selectedOfficerCard = useMemo(() => (
+    officerCards.find(({ officer }) => officer.id === selectedOfficerId) ?? officerCards[0] ?? null
+  ), [officerCards, selectedOfficerId]);
+
+  const historyRows = useMemo(() => {
+    if (!selectedOfficerCard?.personRecord || selectedOfficerCard.personRecord.kind !== "personenakte" || !selectedOfficerCard.personRecord.person) {
+      return [] as Array<{ shift: OfficerRecord["shiftHistory"][number]; officerName: string; dienstnummer: string }>;
+    }
+
+    const officerName = selectedOfficerCard.personRecord.person.vorNachname;
+    return selectedOfficerCard.officer.shiftHistory
+      .map((shift) => ({
+        shift,
+        officerName,
+        dienstnummer: selectedOfficerCard.officer.dienstnummer,
+      }))
+      .sort((left, right) => new Date(right.shift.startedAt).getTime() - new Date(left.shift.startedAt).getTime())
+      .slice(0, 10);
+  }, [selectedOfficerCard]);
+
+  const activeOfficerCount = officerRecords.filter((record) => record.currentShiftStartedAt).length;
+  const totalDutyMinutes = officerRecords.reduce((sum, officer) => sum + getLiveDutyMinutes(officer, now), 0);
+  const completedShiftCount = officerRecords.reduce((sum, officer) => sum + officer.shiftHistory.length, 0);
+
+  function startShift(officerId: string) {
+    const startedAt = new Date().toISOString();
+    setOfficerRecords((prev) => prev.map((record) => (
+      record.id === officerId && !record.currentShiftStartedAt
+        ? { ...record, currentShiftStartedAt: startedAt }
+        : record
+    )));
+  }
+
+  function stopShift(officerId: string) {
+    const endedAt = new Date();
+    setOfficerRecords((prev) => prev.map((record) => {
+      if (record.id !== officerId || !record.currentShiftStartedAt) return record;
+
+      const startedAt = new Date(record.currentShiftStartedAt);
+      const durationMinutes = Math.max(1, Math.round((endedAt.getTime() - startedAt.getTime()) / 60000));
+
+      return {
+        ...record,
+        totalDutyMinutes: record.totalDutyMinutes + durationMinutes,
+        currentShiftStartedAt: null,
+        shiftHistory: [
+          {
+            id: `shift-${record.id}-${endedAt.getTime()}`,
+            startedAt: record.currentShiftStartedAt,
+            endedAt: endedAt.toISOString(),
+            durationMinutes,
+          },
+          ...record.shiftHistory,
+        ].slice(0, 20),
+      };
+    }));
+  }
+
+  if (!selectedOfficerCard?.personRecord || selectedOfficerCard.personRecord.kind !== "personenakte" || !selectedOfficerCard.personRecord.person) {
+    return (
+      <AppShell breadcrumb="Hammer Modding CopLink / Stempeluhr" title="Stempeluhr">
+        <div className="rounded-3xl border border-dashed border-white/10 bg-black/25 p-8 text-sm text-white/60">
+          Noch keine Officer mit Personenakten verknüpft. Lege zuerst im Officer-Modul einen Officer an.
+        </div>
+      </AppShell>
+    );
+  }
+
+  const selectedOfficer = selectedOfficerCard.officer;
+  const selectedPerson = selectedOfficerCard.personRecord.person;
+  const isActive = Boolean(selectedOfficer.currentShiftStartedAt);
+  const liveMinutes = getLiveDutyMinutes(selectedOfficer, now);
+  const liveShiftMinutes = selectedOfficer.currentShiftStartedAt
+    ? Math.max(0, Math.floor((now.getTime() - new Date(selectedOfficer.currentShiftStartedAt).getTime()) / 60000))
+    : 0;
+  const lastShift = selectedOfficer.shiftHistory[0] ?? null;
+  const profileOptions = officerCards.map(({ officer, personRecord }) => ({
+    value: officer.id,
+    label: `${personRecord?.person?.vorNachname ?? "Unbekannt"} · ${officer.dienstnummer}`,
+  }));
+
+  return (
+    <AppShell breadcrumb="Hammer Modding CopLink / Stempeluhr" title="Stempeluhr">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_340px]">
+        <div className="rounded-[28px] border border-red-500/20 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.35)]">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.28em] text-red-200/55">Mein Dienst / vorbereitet für Accountbindung</p>
+              <h2 className="mt-3 text-[34px] font-bold leading-none text-white">{selectedPerson.vorNachname}</h2>
+              <p className="mt-2 text-sm text-white/55">Dienstnummer {selectedOfficer.dienstnummer} · {selectedOfficer.rolle}</p>
+            </div>
+            <div className="flex flex-col items-start gap-3 rounded-2xl border border-white/8 bg-black/25 px-4 py-4 text-left sm:items-end sm:text-right">
+              <StatusBadge text={isActive ? "Im Dienst" : "Außer Dienst"} tone={isActive ? "green" : "neutral"} />
+              <p className="max-w-[280px] text-sm text-white/55">
+                Später wird diese Ansicht automatisch an den eingeloggten Benutzer gekoppelt. Aktuell wählst du unten nur das Vorschau-Profil.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-6 grid gap-4 md:grid-cols-3">
+            <div className="rounded-2xl border border-white/8 bg-[#11131a] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+              <p className="text-[11px] uppercase tracking-[0.24em] text-white/38">Aktuelle Schicht</p>
+              <p className="mt-3 text-xl font-semibold text-white">{isActive ? formatDutyDuration(liveShiftMinutes) : "Keine offene Schicht"}</p>
+              <p className="mt-2 text-sm text-white/45">{isActive ? `Beginn ${formatDutyTimestamp(selectedOfficer.currentShiftStartedAt)}` : "Beim Einstempeln startet sofort eine neue Schicht."}</p>
+            </div>
+            <div className="rounded-2xl border border-white/8 bg-[#11131a] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+              <p className="text-[11px] uppercase tracking-[0.24em] text-white/38">Gesamte Dienstzeit</p>
+              <p className="mt-3 text-xl font-semibold text-white">{formatDutyDuration(liveMinutes)}</p>
+              <p className="mt-2 text-sm text-white/45">Gesammelte Dienstzeit dieses Officers im aktuellen Stand.</p>
+            </div>
+            <div className="rounded-2xl border border-white/8 bg-[#11131a] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+              <p className="text-[11px] uppercase tracking-[0.24em] text-white/38">Letzter abgeschlossener Dienst</p>
+              <p className="mt-3 text-xl font-semibold text-white">{lastShift ? formatDutyDuration(lastShift.durationMinutes) : "Noch keiner"}</p>
+              <p className="mt-2 text-sm text-white/45">{lastShift ? formatDutyTimestamp(lastShift.endedAt) : "Noch keine abgeschlossene Schicht vorhanden."}</p>
+            </div>
+          </div>
+
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            {isActive ? (
+              <UiButton onClick={() => stopShift(selectedOfficer.id)} variant="red-alt">Ausstempeln</UiButton>
+            ) : (
+              <UiButton onClick={() => startShift(selectedOfficer.id)} variant="green">Einstempeln</UiButton>
+            )}
+            <div className="rounded-2xl border border-red-500/15 bg-red-500/[0.06] px-4 py-3 text-sm text-white/70">
+              {isActive
+                ? "Du stempelst hier ausschließlich den aktuell gewählten Officer aus. Später übernimmt das der eingeloggte Account automatisch für sich selbst."
+                : "Du stempelst hier ausschließlich den aktuell gewählten Officer ein. Fremde Officer werden in der finalen Account-Version nicht mehr steuerbar sein."}
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-[28px] border border-white/8 bg-[#0f1117] p-5 shadow-[0_20px_60px_rgba(0,0,0,0.3)]">
+          <p className="text-[11px] uppercase tracking-[0.28em] text-red-200/55">Vorschau-Profil</p>
+          <h3 className="mt-3 text-xl font-bold text-white">Officer für diese Ansicht</h3>
+          <p className="mt-2 text-sm leading-6 text-white/55">Bis die Login-/Rechte-Logik da ist, kannst du hier manuell den Officer wählen, für den die Stempeluhr gezeigt wird.</p>
+
+          <div className="mt-5">
+            <FieldBlock label="Officer auswählen">
+              <FancySelect
+                value={selectedOfficer.id}
+                options={profileOptions}
+                onChange={setSelectedOfficerId}
+                placeholder="Officer auswählen"
+              />
+            </FieldBlock>
+          </div>
+
+          <div className="mt-5 space-y-3">
+            {[
+              { label: "Aktive Officer im System", value: String(activeOfficerCount) },
+              { label: "Gesamte Dienstzeit gesamt", value: formatDutyDuration(totalDutyMinutes) },
+              { label: "Abgeschlossene Dienste gesamt", value: String(completedShiftCount) },
+            ].map((item) => (
+              <div key={item.label} className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3">
+                <p className="text-[11px] uppercase tracking-[0.22em] text-white/35">{item.label}</p>
+                <p className="mt-2 text-lg font-semibold text-white">{item.value}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-8 rounded-[28px] border border-white/8 bg-[#0c0f15] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.28)]">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.28em] text-red-200/55">Diensthistorie</p>
+            <h3 className="mt-2 text-2xl font-bold text-white">Meine letzten Dienste</h3>
+          </div>
+          <ToneBadge text={selectedOfficer.dienstnummer} tone="neutral" />
+        </div>
+
+        <div className="mt-5 overflow-hidden rounded-2xl border border-white/8">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-white/[0.04] text-white/55">
+              <tr>
+                <th className="px-4 py-4 font-medium">Officer</th>
+                <th className="px-4 py-4 font-medium">Dienstbeginn</th>
+                <th className="px-4 py-4 font-medium">Dienstende</th>
+                <th className="px-4 py-4 font-medium">Dauer</th>
+              </tr>
+            </thead>
+            <tbody className="bg-black/15 text-white/90">
+              {historyRows.length ? historyRows.map(({ shift, officerName, dienstnummer }) => (
+                <tr key={shift.id} className="border-t border-white/6">
+                  <td className="px-4 py-4">{officerName} · {dienstnummer}</td>
+                  <td className="px-4 py-4">{formatDutyTimestamp(shift.startedAt)}</td>
+                  <td className="px-4 py-4">{formatDutyTimestamp(shift.endedAt)}</td>
+                  <td className="px-4 py-4">{formatDutyDuration(shift.durationMinutes)}</td>
+                </tr>
+              )) : (
+                <tr className="border-t border-white/6">
+                  <td className="px-4 py-4 text-white/45" colSpan={4}>Noch keine abgeschlossenen Dienste für dieses Officer-Profil vorhanden.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </AppShell>
+  );
+}
+
+
 function renderAppContent(appId: AppId) {
   switch (appId) {
     case "akten":
       return <AktenApp />;
 
     case "ermittlungen":
-      return (
-        <AppShell
-          breadcrumb="Bitterhafen CopLink / Ermittlungen"
-          title="Ermittlungen"
-          actions={
-            <button className="ui-btn ui-btn-red">
-              Tabellenansicht bearbeiten
-            </button>
-          }
-        >
-          <div className="flex flex-wrap gap-3">
-            <button className="ui-btn ui-btn-red">
-              Ermittlung hinzufügen
-            </button>
-          </div>
-
-          <div className="mt-5 grid gap-4 md:grid-cols-[180px_1fr]">
-            <div className="flex items-center gap-3 text-sm text-white/60">
-              <span>Show</span>
-              <div className="rounded-xl border border-white/10 bg-black/20 px-4 py-2 text-white">10</div>
-              <span>entries</span>
-            </div>
-            <div className="md:justify-self-end md:w-[260px]">
-              <SearchInput placeholder="Ermittlung suchen..." />
-            </div>
-          </div>
-
-          <div className="mt-5 overflow-hidden rounded-2xl border border-white/8">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-white/[0.05] text-white/55">
-                <tr>
-                  <th className="px-4 py-4 font-medium">Name / Sammelakte</th>
-                  <th className="px-4 py-4 font-medium">Officer</th>
-                  <th className="px-4 py-4 font-medium">Tags</th>
-                  <th className="px-4 py-4 font-medium">Aktion</th>
-                </tr>
-              </thead>
-              <tbody className="bg-black/15 text-white/90">
-                {[
-                  ["Ani Mozrelly Auftrag", "Srna Marinovic", "Geteilt"],
-                  ["FIB-IE-38", "Agent Black", "Geteilt"],
-                  ["Waffenhandel Ziki Peres", "Agent Bane", "Priorität"],
-                ].map(([title, officer, tag]) => (
-                  <tr key={title} className="border-t border-white/6">
-                    <td className="px-4 py-4">{title}</td>
-                    <td className="px-4 py-4">{officer}</td>
-                    <td className="px-4 py-4">
-                      <span className={`rounded-full px-3 py-1 text-[11px] font-semibold text-white ${tag === "Priorität" ? "bg-rose-500" : "bg-cyan-500"}`}>
-                        {tag}
-                      </span>
-                    </td>
-                    <td className="px-4 py-4">
-                      <div className="flex gap-2">
-                        <button className="ui-btn ui-btn-inline">Öffnen</button>
-                        <button className="ui-btn ui-btn-inline">Bearbeiten</button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </AppShell>
-      );
+      return (<ErmittlungenAppView />);
 
     case "kfz":
       return <KfzRegisterApp />;
 
     case "officer":
-      return (
-        <AppShell breadcrumb="Bitterhafen CopLink / Officer" title="Officer Übersicht">
-          <div className="grid gap-5 lg:grid-cols-3">
-            {[
-              ["Agent Jax", "Chief (Standard)", "32039-40"],
-              ["Agent Hawk", "Officer (Standard)", "32039-06"],
-              ["Agent Fallout", "Officer (Standard)", "32039-21"],
-            ].map(([name, rank, number]) => (
-              <div key={name} className="overflow-hidden rounded-2xl border border-white/8 bg-black/20">
-                <div className="border-b border-white/6 bg-gradient-to-r from-emerald-700 to-lime-600 p-5">
-                  <div className="flex items-center gap-4">
-                    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-white/20 text-2xl">👮</div>
-                    <div>
-                      <p className="text-2xl font-bold text-white">{name}</p>
-                      <p className="text-sm font-semibold text-white/90">{rank}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-0 divide-y divide-white/6">
-                  {[
-                    ["Dienstnummer", number],
-                    ["Sicherheitsstufe", "0"],
-                    ["Akteneinträge", "0"],
-                    ["Ermittlungen", "0"],
-                    ["Aktivitäten", "6"],
-                    ["Dienstzeit", "keine"],
-                  ].map(([label, value]) => (
-                    <div key={label} className="flex items-center justify-between px-5 py-3 text-sm">
-                      <span className="text-white/60">{label}</span>
-                      <span className="rounded-md bg-red-500/15 px-2 py-1 font-semibold text-red-200">{value}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </AppShell>
-      );
+      return <OfficerApp />;
 
     case "leitstelle":
-      return (
-        <AppShell breadcrumb="Bitterhafen CopLink / Leitstelle" title="Leitstelle">
-          <p className="text-sm text-white/65">Hier hast du eine Übersicht aller Officer und ihrer Funkstatus.</p>
-          <div className="mt-5 flex flex-wrap gap-3">
-            <button className="ui-btn ui-btn-inline">Streifen zurücksetzen</button>
-          </div>
-          <div className="mt-5 overflow-hidden rounded-2xl border border-white/8">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-white/[0.05] text-white/55">
-                <tr>
-                  <th className="px-4 py-4 font-medium">Dienstnummer</th>
-                  <th className="px-4 py-4 font-medium">Status</th>
-                  <th className="px-4 py-4 font-medium">Status-Info</th>
-                  <th className="px-4 py-4 font-medium">Option</th>
-                </tr>
-              </thead>
-              <tbody className="bg-black/15 text-white/90">
-                {[
-                  ["32039-01 -> Ali", "Funk Offline", "Außer Dienst"],
-                  ["32039-40 -> Agent Jax", "Funk Offline", "Außer Dienst"],
-                  ["32039-29 -> Agent Tyga", "Funk Offline", "Außer Dienst"],
-                  ["32039-28 -> Agent Lotus", "Funk Offline", "Außer Dienst"],
-                ].map(([id, status, info]) => (
-                  <tr key={id} className="border-t border-white/6">
-                    <td className="px-4 py-4">{id}</td>
-                    <td className="px-4 py-4">{status}</td>
-                    <td className="px-4 py-4">{info}</td>
-                    <td className="px-4 py-4 text-white/40">—</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </AppShell>
-      );
+      return (<LeitstelleAppView />);
 
     case "stempeluhr":
-      return (
-        <AppShell breadcrumb="Bitterhafen CopLink / Stempeluhr" title="Stempeluhr">
-          <div className="grid gap-4 md:grid-cols-3">
-            {[
-              ["0 Minuten", "from-blue-600 to-sky-500"],
-              ["0 Stunde(n)", "from-emerald-600 to-green-500"],
-              ["0 Tag(e)", "from-rose-600 to-red-500"],
-            ].map(([value, gradient]) => (
-              <div key={value} className={`rounded-2xl bg-gradient-to-r ${gradient} p-5 shadow-lg`}>
-                <p className="text-2xl font-bold text-white">{value}</p>
-              </div>
-            ))}
-          </div>
-
-          <button className="mt-5 rounded-xl border border-emerald-400/35 bg-emerald-500/12 px-5 py-3 text-sm font-semibold text-emerald-300">Dienst beginnen</button>
-
-          <div className="mt-8">
-            <h2 className="text-3xl font-bold text-white">Vergangene 10 Dienste:</h2>
-            <div className="mt-5 overflow-hidden rounded-2xl border border-white/8">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-white/[0.05] text-white/55">
-                  <tr>
-                    <th className="px-4 py-4 font-medium">Dienstbeginn</th>
-                    <th className="px-4 py-4 font-medium">Zeit</th>
-                    <th className="px-4 py-4 font-medium">Dienstende</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-black/15 text-white/50">
-                  <tr className="border-t border-white/6">
-                    <td className="px-4 py-4" colSpan={3}>Keine Einträge vorhanden</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </AppShell>
-      );
+      return <StempeluhrApp />;
 
     case "einstellungen":
-      return (
-        <AppShell breadcrumb="Bitterhafen CopLink / Einstellungen" title="Einstellungen">
-          <div className="grid gap-4 lg:grid-cols-2">
-            {[
-              ["Persönliche Einstellungen", "Passe das Aussehen deines CopLink nach deinem Geschmack an.", "from-sky-500 to-blue-500"],
-              ["Computer Einstellungen", "Ändere benutzerübergreifende Einstellungen wie das Hintergrundbild.", "from-pink-500 to-rose-500"],
-              ["Akten Einstellungen", "Gestalte die Aktenstruktur flexibel und füge neue Felder hinzu.", "from-amber-500 to-orange-500"],
-              ["Lizenzen einstellen", "Erstelle und konfiguriere individuelle Lizenzen wie Führerschein und Waffenschein.", "from-teal-500 to-emerald-500"],
-              ["Gruppen einstellen", "Lege Nutzergruppen an und passe deren Rechte an.", "from-slate-600 to-slate-700"],
-              ["Favoriten einstellen", "Lege deine bevorzugten Anwendungen benutzerübergreifend fest.", "from-emerald-500 to-lime-500"],
-            ].map(([title, desc, gradient]) => (
-              <div key={title} className={`rounded-2xl bg-gradient-to-r ${gradient} p-6 text-white shadow-lg`}>
-                <h3 className="text-2xl font-bold">{title}</h3>
-                <p className="mt-3 max-w-[580px] text-sm text-white/90">{desc}</p>
-              </div>
-            ))}
-          </div>
-        </AppShell>
-      );
+      return (<EinstellungenAppView />);
 
     case "ausbildungen":
-      return (
-        <AppShell breadcrumb="Bitterhafen CopLink / Ausbildungen" title="Ausbildungen verwalten">
-          <p className="max-w-4xl text-white/70">Hier kannst du alle Ausbildungen und ihren Inhalt verwalten. Officer können sich für Ausbildungen eintragen lassen und Ausbilder können Officer bei abgeschlossenen Ausbildungen Qualifikationen hinzufügen.</p>
-          <div className="mt-5 overflow-hidden rounded-2xl border border-white/8 bg-black/15">
-            <div className="border-b border-white/8 bg-white/[0.04] px-4 py-3 text-lg font-semibold text-white">Allgemein</div>
-            <div className="space-y-6 p-5">
-              <div>
-                <h3 className="text-2xl font-bold text-white">Allgemein</h3>
-                <p className="mt-3 text-white/65">Ausbildungen zum Nachholen etc</p>
-              </div>
-              <button className="ui-btn ui-btn-red">Teilnahme Anfragen</button>
-              <p className="text-lg font-semibold text-white">Aktuelle Ausbilder 32039-22 -&gt; Agent Bane</p>
-            </div>
-          </div>
-        </AppShell>
-      );
+      return (<AusbildungenAppView />);
 
     case "taschenrechner":
       return <CalculatorApp />;
 
     case "gefaengnis":
-      return (
-        <AppShell breadcrumb="Bitterhafen CopLink / Gefängnis" title="Zellenbelegung">
-          <div className="overflow-hidden rounded-2xl border border-white/8">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-white/[0.05] text-white/55">
-                <tr>
-                  <th className="px-4 py-4 font-medium">Name</th>
-                  <th className="px-4 py-4 font-medium">Belegung</th>
-                  <th className="px-4 py-4 font-medium">Ende der Haft</th>
-                  <th className="px-4 py-4 font-medium">Bemerkungen</th>
-                  <th className="px-4 py-4 font-medium">#</th>
-                </tr>
-              </thead>
-              <tbody className="bg-black/15 text-white/50">
-                <tr className="border-t border-white/6">
-                  <td className="px-4 py-4" colSpan={5}>Keine aktiven Häftlinge vorhanden</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </AppShell>
-      );
+      return (<GefaengnisAppView />);
 
     case "strafen":
-      return (
-        <AppShell breadcrumb="Bitterhafen CopLink / Strafen" title="Strafen">
-          <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-5 py-4 text-amber-100">Dieses Gesetzbuch stammt vom Master-Computer des Netzwerk</div>
-          <div className="mt-4 overflow-hidden rounded-2xl border border-white/8">
-            <div className="flex items-center justify-between bg-sky-500/20 px-5 py-4 text-sm font-semibold text-sky-100">
-              <span>BGB - Bürgerliches Gesetzbuch</span>
-              <span>⌃</span>
-            </div>
-            <div className="bg-black/15 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div className="flex items-center gap-3 text-sm text-white/60">
-                  <span>Show</span>
-                  <div className="rounded-xl border border-white/10 bg-black/20 px-4 py-2 text-white">10</div>
-                  <span>entries</span>
-                </div>
-                <div className="w-[220px]"><SearchInput placeholder="Search..." /></div>
-              </div>
-              <div className="mt-4 overflow-hidden rounded-2xl border border-white/8">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-white/[0.05] text-white/55">
-                    <tr>
-                      <th className="px-4 py-4 font-medium">Straftat</th>
-                      <th className="px-4 py-4 font-medium">Minimalstrafe</th>
-                      <th className="px-4 py-4 font-medium">Maximalstrafe</th>
-                      <th className="px-4 py-4 font-medium">Minimalhaftzeit</th>
-                      <th className="px-4 py-4 font-medium">Maximalhaftzeit</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-black/15 text-white/90">
-                    {[
-                      ["§1 Rechtsmissbräuchlicher Vertragsschluss", "15000 Dollar", "15000 Dollar", "10 Minuten", "10 Minuten"],
-                      ["§2 Vertragsbruch im Dienst- / Werkvertrag", "10000 Dollar", "10000 Dollar", "---", "---"],
-                      ["§3 Arglistige Täuschung beim Vertrag", "25000 Dollar", "25000 Dollar", "15 Minuten", "15 Minuten"],
-                    ].map((row) => (
-                      <tr key={row[0]} className="border-t border-white/6">
-                        {row.map((cell) => (
-                          <td key={cell} className="px-4 py-4">{cell}</td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </AppShell>
-      );
+      return <StrafenApp />;
 
     case "urlaub":
-      return (
-        <AppShell breadcrumb="Bitterhafen CopLink / Urlaub" title="Mein Urlaub">
-          <button className="ui-btn ui-btn-red">Urlaub hinzufügen</button>
-          <div className="mt-5 overflow-hidden rounded-2xl border border-white/8 bg-black/15">
-            <div className="flex border-b border-white/8">
-              <div className="border-r border-white/8 bg-white/[0.03] px-4 py-3 text-sm text-white">offene Urlaube</div>
-              <div className="px-4 py-3 text-sm text-sky-300">abgeschlossene Urlaube</div>
-            </div>
-            <div className="p-5">
-              <div className="rounded-xl border border-sky-400/30 bg-sky-500/15 px-4 py-4 text-sm text-sky-100">Es sind keine Einträge vorhanden</div>
-            </div>
-          </div>
-        </AppShell>
-      );
+      return (<UrlaubAppView />);
 
     case "strafanzeigen":
-      return (
-        <AppShell breadcrumb="Bitterhafen CopLink / Strafanzeigen" title="Strafanzeigen">
-          <button className="ui-btn ui-btn-inline">Anzeige erstellen</button>
-          <div className="mt-5 overflow-hidden rounded-2xl border border-white/8 bg-black/15">
-            <div className="border-b border-white/8 px-4 py-3 text-sm text-white/70">Search:</div>
-            <div className="border-b border-white/8 px-4 py-3 text-sm text-white/70">Show entries: 10</div>
-            <div className="p-4">
-              <table className="w-full text-left text-sm">
-                <thead className="text-white/55">
-                  <tr>
-                    <th className="px-3 py-3">ID</th>
-                    <th className="px-3 py-3">Von</th>
-                    <th className="px-3 py-3">Täter</th>
-                    <th className="px-3 py-3">Officer</th>
-                    <th className="px-3 py-3">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="text-white/45">
-                  <tr className="border-t border-white/6">
-                    <td className="px-3 py-4" colSpan={5}>Nothing to show</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </AppShell>
-      );
+      return <StrafanzeigenApp />;
 
     case "vorlagen":
-      return (
-        <AppShell breadcrumb="Bitterhafen CopLink / Vorlagen" title="Vorlagen">
-          <div className="space-y-3">
-            {["Akten", "Einsatzberichte", "Abschlepphof", "Ermittlungen"].map((item) => (
-              <button key={item} className="flex w-full items-center justify-between rounded-xl border border-white/8 bg-white/[0.04] px-5 py-5 text-left text-lg font-medium text-white transition hover:bg-white/[0.07]">
-                <span>{item}</span>
-                <span className="text-white/35">›</span>
-              </button>
-            ))}
-          </div>
-        </AppShell>
-      );
+      return (<VorlagenAppView />);
 
     case "funk":
-      return (
-        <AppShell breadcrumb="Bitterhafen CopLink / Funk" title="Funk">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {[
-              ["Leitstelle", "Aktiv verbunden"],
-              ["Streife Nord", "2 Einheiten online"],
-              ["Ermittlungen", "1 Einheit online"],
-              ["Spezialeinsatz", "Keine Aktivität"],
-            ].map(([title, desc]) => (
-              <div key={title} className="rounded-2xl border border-white/8 bg-black/15 p-5">
-                <h3 className="text-lg font-bold text-white">{title}</h3>
-                <p className="mt-3 text-sm text-white/60">{desc}</p>
-              </div>
-            ))}
-          </div>
-        </AppShell>
-      );
+      return (<FunkAppView />);
 
     case "einsatzberichte":
-      return (
-        <AppShell breadcrumb="Bitterhafen CopLink / Einsatzberichte" title="Übersicht der Einsatzberichte">
-          <button className="ui-btn ui-btn-red">Einsatzbericht hinzufügen</button>
-          <div className="mt-5 overflow-hidden rounded-2xl border border-white/8">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-white/[0.05] text-white/55">
-                <tr>
-                  <th className="px-4 py-4 font-medium">ID</th>
-                  <th className="px-4 py-4 font-medium">Name</th>
-                  <th className="px-4 py-4 font-medium">Erstellt von</th>
-                  <th className="px-4 py-4 font-medium">Erstellt am</th>
-                  <th className="px-4 py-4 font-medium">Optionen</th>
-                </tr>
-              </thead>
-              <tbody className="bg-black/15 text-white/90">
-                {[
-                  ["101769", "Sicherheitsstufe: 2", "--- --- ---", "--- --- ----"],
-                  ["99908", "Sicherheitsstufe: 3", "--- --- ---", "--- --- ----"],
-                  ["98749", "Routenrazzia Pilze", "Agent Washington", "11.01.2026"],
-                ].map(([id, name, author, date]) => (
-                  <tr key={id} className="border-t border-white/6">
-                    <td className="px-4 py-4">{id}</td>
-                    <td className="px-4 py-4">
-                      <div className="font-medium">{name}</div>
-                      {name === "Routenrazzia Pilze" ? (
-                        <span className="mt-2 inline-block rounded-full bg-emerald-500 px-3 py-1 text-[11px] font-semibold text-white">Geteilt</span>
-                      ) : (
-                        <span className="mt-2 inline-block rounded-full bg-rose-500 px-3 py-1 text-[11px] font-semibold text-white">{name}</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-4">{author}</td>
-                    <td className="px-4 py-4">{date}</td>
-                    <td className="px-4 py-4">
-                      <button className="ui-btn ui-btn-inline">Anzeigen</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </AppShell>
-      );
+      return (<EinsatzberichteAppView />);
 
     case "kalender":
-      return (
-        <AppShell breadcrumb="Bitterhafen CopLink / Kalender" title="Kalender">
-          <div className="grid gap-4 md:grid-cols-7">
-            {["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"].map((day) => (
-              <div key={day} className="rounded-xl border border-white/8 bg-white/[0.04] px-4 py-3 text-center font-semibold text-white">{day}</div>
-            ))}
-            {Array.from({ length: 35 }, (_, index) => index + 1).map((day) => (
-              <div key={day} className="min-h-[92px] rounded-xl border border-white/8 bg-black/15 p-3 text-sm text-white/80">{day <= 30 ? day : ""}</div>
-            ))}
-          </div>
-        </AppShell>
-      );
+      return (<KalenderAppView />);
 
     case "notizen":
-      return (
-        <AppShell breadcrumb="Bitterhafen CopLink / Notizen" title="Notizen">
-          <textarea defaultValue="Kurze Notizen, Stichpunkte oder interne Hinweise..." className="min-h-[260px] w-full rounded-2xl border border-white/10 bg-black/25 p-5 text-sm text-white outline-none" />
-        </AppShell>
-      );
+      return (<NotizenAppView />);
 
     case "waffenregister":
-      return (
-        <AppShell breadcrumb="Bitterhafen CopLink / Waffenregister" title="Waffenregister">
-          <div className="overflow-hidden rounded-2xl border border-white/8">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-white/[0.05] text-white/55">
-                <tr>
-                  <th className="px-4 py-4 font-medium">Seriennummer</th>
-                  <th className="px-4 py-4 font-medium">Waffe</th>
-                  <th className="px-4 py-4 font-medium">Besitzer</th>
-                  <th className="px-4 py-4 font-medium">Status</th>
-                </tr>
-              </thead>
-              <tbody className="bg-black/15 text-white/90">
-                {[
-                  ["WR-1007", "Pistol .50", "Agent Bane", "Registriert"],
-                  ["WR-1119", "Spezialkarabiner", "LSPD Asservat", "Asserviert"],
-                  ["WR-1188", "Pistole", "Unbekannt", "Prüfung"],
-                ].map((row) => (
-                  <tr key={row[0]} className="border-t border-white/6">
-                    {row.map((cell) => (
-                      <td key={cell} className="px-4 py-4">{cell}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </AppShell>
-      );
+      return <WeaponsRegisterApp />;
+
+    case "asservatenkammer":
+      return <AsservatenkammerApp />;
 
     case "units":
-      return (
-        <AppShell breadcrumb="Bitterhafen CopLink / Units" title="Units">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {[
-              ["Unit Alpha", "2 Officer", "Streifenbetrieb"],
-              ["Unit Bravo", "1 Officer", "Bereitschaft"],
-              ["Unit Charlie", "3 Officer", "Ermittlungen"],
-            ].map(([title, count, status]) => (
-              <div key={title} className="rounded-2xl border border-white/8 bg-black/15 p-5">
-                <h3 className="text-lg font-bold text-white">{title}</h3>
-                <p className="mt-3 text-sm text-white/60">{count}</p>
-                <p className="mt-2 text-sm text-red-200/80">{status}</p>
-              </div>
-            ))}
-          </div>
-        </AppShell>
-      );
+      return (<UnitsAppView />);
 
     case "wissensdatenbank":
-      return (
-        <AppShell breadcrumb="Bitterhafen CopLink / Wissensdatenbank" title="Wissensdatenbank">
-          <div className="grid gap-4 md:grid-cols-2">
-            {[
-              ["Dienstvorschriften", "Interne Regeln, Abläufe und Standards"],
-              ["Gesetzesgrundlagen", "Schneller Überblick über zentrale Normen"],
-              ["Formulare & Vorlagen", "Standardtexte und Einsatzvorlagen"],
-              ["Ausbildung", "Leitfäden, Prüfungen und Schulungsunterlagen"],
-            ].map(([title, desc]) => (
-              <div key={title} className="rounded-2xl border border-white/8 bg-black/15 p-5">
-                <h3 className="text-lg font-bold text-white">{title}</h3>
-                <p className="mt-3 text-sm text-white/60">{desc}</p>
-              </div>
-            ))}
-          </div>
-        </AppShell>
-      );
+      return (<WissensdatenbankAppView />);
 
     case "meinpc":
-      return (
-        <AppShell breadcrumb="Bitterhafen CopLink / Mein PC" title="Mein PC">
-          <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
-            <div className="rounded-2xl border border-white/8 bg-black/15 p-5">
-              <p className="text-xs uppercase tracking-[0.3em] text-white/35">Support</p>
-              <div className="mt-5 space-y-4">
-                {[
-                  ["Discord", "Interner Supportkanal"],
-                  ["Website", "Bitterhafen Portal"],
-                  ["VPC-Website", "Zusätzliche Informationen"],
-                ].map(([title, desc]) => (
-                  <div key={title} className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
-                    <p className="font-semibold text-white">{title}</p>
-                    <p className="mt-2 text-sm text-white/60">{desc}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="rounded-2xl border border-white/8 bg-black/15 p-5">
-              <p className="text-xs uppercase tracking-[0.3em] text-white/35">Devices and Disks</p>
-              <div className="mt-5 space-y-4 text-sm text-white/85">
-                {[
-                  ["Akten", "32% belegt"],
-                  ["Images", "78% belegt"],
-                  ["System (C:)", "bereit"],
-                  ["Backups (D:)", "verbunden"],
-                  ["Network", "online"],
-                ].map(([label, status]) => (
-                  <div key={label} className="rounded-xl border border-white/8 bg-white/[0.03] px-4 py-4">
-                    <div className="flex items-center justify-between gap-4">
-                      <span>{label}</span>
-                      <span className="text-white/55">{status}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </AppShell>
-      );
+      return (<MeinPcAppView />);
 
     default:
       return null;
@@ -2922,12 +4662,27 @@ export default function Home() {
   const [now, setNow] = useState<Date | null>(null);
   const [aktenRecords, setAktenRecords] = useState<AktenRecord[]>(INITIAL_AKTEN_RECORDS);
   const [kfzRecords, setKfzRecords] = useState<KfzRecord[]>(INITIAL_KFZ_RECORDS);
+  const [strafanzeigenRecords, setStrafanzeigenRecords] = useState<StrafanzeigeRecord[]>(INITIAL_STRAFANZEIGEN);
+  const [weaponRecords, setWeaponRecords] = useState<WeaponRecord[]>(INITIAL_WEAPON_RECORDS);
+  const [officerRecords, setOfficerRecords] = useState<OfficerRecord[]>(INITIAL_OFFICER_RECORDS);
+  const [asservatenSchraenke, setAsservatenSchraenke] = useState<AsservatenSchrankRecord[]>(INITIAL_ASSERVATEN_SCHRAENKE);
+  const [asservatenItems, setAsservatenItems] = useState<AsservatenItemRecord[]>(INITIAL_ASSERVATEN_ITEMS);
 
   useEffect(() => {
     setNow(new Date());
     const interval = setInterval(() => setNow(new Date()), 30000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    setAsservatenItems((prev) =>
+      prev.filter((item) => {
+        if (!item.weaponRecordId) return true;
+        const linkedWeapon = weaponRecords.find((record) => record.id === item.weaponRecordId);
+        return Boolean(linkedWeapon && linkedWeapon.status === "Beschlagnahmt");
+      })
+    );
+  }, [weaponRecords]);
 
   useEffect(() => {
     function handleMouseMove(event: MouseEvent) {
@@ -3301,26 +5056,27 @@ export default function Home() {
   });
 
   return (
-    <RecordsContext.Provider value={{ aktenRecords, setAktenRecords, kfzRecords, setKfzRecords }}>
+    <RecordsContext.Provider value={{ aktenRecords, setAktenRecords, kfzRecords, setKfzRecords, strafanzeigenRecords, setStrafanzeigenRecords, weaponRecords, setWeaponRecords, officerRecords, setOfficerRecords, asservatenSchraenke, setAsservatenSchraenke, asservatenItems, setAsservatenItems }}>
       <QuickOpenContext.Provider value={openApp}>
         <main ref={desktopRef} className="desktop-bg desktop-grid relative min-h-screen overflow-hidden text-white">
       <div className="desktop-glow absolute inset-0" />
       <div className="desktop-ambient-beam pointer-events-none absolute inset-y-0 left-1/2 w-[520px] -translate-x-1/2 bg-gradient-to-b from-red-500/0 via-red-500/8 to-red-500/0 blur-3xl" />
 
-      <div className="pointer-events-none absolute inset-0">
-        <div className="watermark-glow absolute left-1/2 top-1/2 h-[240px] w-[240px] -translate-x-1/2 -translate-y-1/2 rounded-[40px] border border-red-500/25 bg-red-500/5 shadow-[0_0_120px_rgba(200,25,55,0.16)]" />
-        <div className="watermark-glow absolute left-1/2 top-1/2 h-[90px] w-[90px] -translate-x-1/2 -translate-y-[92px] rounded-[28px] border border-red-500/20 bg-red-500/8 shadow-[0_0_40px_rgba(200,25,55,0.15)]" />
-        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-[86px] text-5xl font-black text-red-100/90">CL</div>
-        <div className="watermark-glow absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-[5px] text-6xl font-black tracking-tight text-white/88">CopLink</div>
-        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 translate-y-[36px] text-[13px] uppercase tracking-[0.42em] text-white/25">Bitterhafen Polizeisystem</div>
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+        <div className="relative flex h-[360px] w-[360px] items-center justify-center overflow-visible">
+          <div className="watermark-glow absolute inset-0 rounded-[56px] border border-red-500/20 bg-red-500/4 shadow-[0_0_160px_rgba(200,25,55,0.16)]" />
+          <Image src={hammerModdingCopLinkLogo} alt="Hammer Modding CopLink Logo" priority className="logo-heartbeat relative z-10 h-auto w-[122%] max-w-[440px] object-contain select-none drop-shadow-[0_0_42px_rgba(255,38,66,0.32)]" />
+        </div>
       </div>
 
-      <div className="brand-pulse brand-float brand-shimmer absolute left-4 top-4 z-20 rounded-[24px] border bg-black/55 px-5 py-3.5 backdrop-blur-xl">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-red-500 to-rose-400 text-sm font-black text-white">CL</div>
+      <div className="brand-pulse brand-float brand-shimmer absolute left-3 top-3 z-20 min-w-[278px] rounded-[22px] border bg-black/55 px-4 py-3.5 backdrop-blur-xl">
+        <div className="flex items-center gap-3.5">
+          <div className="flex h-[66px] w-[66px] items-center justify-center rounded-[16px] border border-white/10 bg-black/35 p-1.5 shadow-[0_10px_24px_rgba(0,0,0,0.35)]">
+            <Image src={hammerModdingCopLinkLogo} alt="Hammer Modding CopLink Emblem" className="h-full w-full scale-[1.15] object-contain select-none" />
+          </div>
           <div>
-            <p className="text-[10px] uppercase tracking-[0.3em] text-white/45">UnityLink</p>
-            <p className="text-[18px] font-black text-white">Bitterhafen CopLink</p>
+            <p className="text-[9px] uppercase tracking-[0.28em] text-white/45">UnityLink</p>
+            <p className="text-[19px] font-black leading-none text-white">Hammer Modding CopLink</p>
           </div>
         </div>
       </div>
@@ -3388,7 +5144,7 @@ export default function Home() {
       {startOpen && (
         <div className="absolute bottom-24 left-1/2 z-30 h-[430px] w-[400px] overflow-hidden rounded-[26px] border border-white/10 bg-[#090b10]/95 shadow-2xl backdrop-blur-xl" style={{ transform: "translateX(-40%)" }}>
           <div className="border-b border-white/8 px-5 py-4">
-            <p className="text-[10px] uppercase tracking-[0.32em] text-white/35">Bitterhafen CopLink</p>
+            <p className="text-[10px] uppercase tracking-[0.32em] text-white/35">Hammer Modding CopLink</p>
             <h2 className="mt-2 text-2xl font-bold text-white">Startmenü</h2>
           </div>
           <div className="window-scrollbar h-[calc(100%-78px)] overflow-auto p-3">
@@ -3429,7 +5185,7 @@ export default function Home() {
           <span className="text-sm font-semibold">Start</span>
         </button>
 
-        <input
+        <FancyInput
           type="text"
           value={search}
           onChange={(event) => setSearch(event.target.value)}

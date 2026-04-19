@@ -38,7 +38,7 @@ export default function Taskbar({
   return (
     <div className="absolute bottom-0 left-0 right-0 z-40 border-t border-white/8 bg-black/55 px-4 py-3 backdrop-blur-xl">
       <div className="flex items-center justify-between gap-4">
-        <div className="w-44 text-xs text-zinc-500">Bitterhafen CopLink</div>
+        <div className="w-44 text-xs text-zinc-500">Hammer Modding CopLink</div>
 
         <div className="flex flex-1 items-center justify-center">
           <div className="flex w-full max-w-6xl items-center justify-start gap-3 pl-[10vw]">

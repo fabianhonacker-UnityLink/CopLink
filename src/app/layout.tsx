@@ -1,7 +1,7 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Bitterhafen CopLink",
+  title: "Hammer Modding CopLink",
   description: "Desktop-System für die Landespolizei Bitterhafen",
 };
 
