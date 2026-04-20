@@ -144,11 +144,13 @@ export function FancySelect({
   options,
   onChange,
   placeholder,
+  menuPlacement = "down",
 }: {
   value: string;
   options: SelectOption[];
   onChange: (value: string) => void;
   placeholder?: string;
+  menuPlacement?: "down" | "up";
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
@@ -175,7 +177,7 @@ export function FancySelect({
       </button>
 
       {open ? (
-        <div className="ui-select-menu window-scrollbar">
+        <div className={cx("ui-select-menu window-scrollbar", menuPlacement === "up" && "is-top")}>
           {options.map((option) => {
             const active = option.value === value;
             return (

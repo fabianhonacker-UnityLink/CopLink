@@ -1,3 +1,6 @@
+"use client";
+
+import { useMemo, useState } from "react";
 import Image from "next/image";
 import officerAvatarPlaceholder from "../../assets/officer-avatar.png";
 import { FancyTextarea } from "./UiPrimitives";
@@ -430,22 +433,360 @@ export function UnitsAppView() {
   );
 }
 
+const WISSEN_CATEGORIES = [
+  {
+    key: "dienstvorschriften",
+    title: "Dienstvorschriften",
+    desc: "Interne Regeln, Abläufe und Standards",
+    accent: "from-red-600/25 via-red-500/10 to-transparent",
+  },
+  {
+    key: "gesetze",
+    title: "Gesetzesgrundlagen",
+    desc: "Schneller Überblick über zentrale Normen",
+    accent: "from-cyan-500/25 via-cyan-500/10 to-transparent",
+  },
+  {
+    key: "vorlagen",
+    title: "Formulare & Vorlagen",
+    desc: "Standardtexte und Einsatzvorlagen",
+    accent: "from-amber-500/25 via-amber-500/10 to-transparent",
+  },
+  {
+    key: "ausbildung",
+    title: "Ausbildung",
+    desc: "Leitfäden, Prüfungen und Schulungsunterlagen",
+    accent: "from-emerald-500/25 via-emerald-500/10 to-transparent",
+  },
+] as const;
+
+type DienstvorschriftItem = {
+  title: string;
+  paragraphs?: readonly string[];
+  bullets?: readonly string[];
+  extra?: readonly string[];
+};
+
+type DienstvorschriftSection = {
+  section: string;
+  items: readonly DienstvorschriftItem[];
+};
+
+const DIENSTVORSCHRIFTEN_SECTIONS: readonly DienstvorschriftSection[] = [
+  {
+    section: "Abschnitt 1 – Allgemeines",
+    items: [
+      {
+        title: "§ 1 Geltungsbereich",
+        paragraphs: [
+          "Diese Dienstvorschrift gilt für alle Bediensteten der Landespolizei Bitterhafen (LaPol BH).",
+          "Sie regelt die Organisation, Aufgabenwahrnehmung, das Verhalten im Dienst sowie den ordnungsgemäßen Gebrauch von Ausrüstung und Einsatzmitteln.",
+          "Sie ist für alle Angehörigen der Landespolizei verbindlich.",
+        ],
+      },
+      {
+        title: "§ 2 Aufgaben der Landespolizei Bitterhafen",
+        paragraphs: [
+          "Die Landespolizei Bitterhafen ist Teil der öffentlichen Sicherheitsbehörden des Landes Bitterhafen.",
+          "Ihre Hauptaufgaben umfassen insbesondere:",
+        ],
+        bullets: [
+          "Abwehr von Gefahren für die öffentliche Sicherheit und Ordnung",
+          "Verfolgung von Straftaten und Ordnungswidrigkeiten",
+          "Aufrechterhaltung eines geordneten Straßenverkehrs",
+          "Schutz von Leben, Gesundheit, Eigentum und Rechten der Bürger",
+          "Unterstützung anderer Behörden bei der Gefahrenabwehr und Strafverfolgung",
+          "Grundlage des polizeilichen Handelns ist stets die Verhältnismäßigkeit der Mittel",
+        ],
+      },
+      {
+        title: "§ 3 Rechtsgrundlagen",
+        paragraphs: ["Das Handeln der Landespolizei Bitterhafen richtet sich nach den geltenden Gesetzen und Vorschriften, insbesondere:"],
+        bullets: ["Strafgesetzbuch (StGB)", "Ordnungswidrigkeiten (OWiG)", "Straßenverkehrsordnung (StVO)", "Betäubungsmittelgesetz (BtMG)", "Waffengesetz (WaffG)", "Datenschutzgesetz (DSG)"],
+      },
+      {
+        title: "§ 4 Dienstpflichten und Verhalten im Dienst",
+        bullets: [
+          "Jeder Polizeivollzugsbeamte ist zu rechtmäßigem, unparteiischen und gewissenhaftem Handeln verpflichtet.",
+          "Beamte haben im Dienst das Ansehen der Polizei zu wahren und sich kameradschaftlich zu verhalten.",
+          "Alkohol- oder Drogenkonsum im Dienst ist strengstens untersagt.",
+          "Weisungen der Vorgesetzten sind zu befolgen, sofern sie nicht offensichtlich rechtswidrig sind.",
+        ],
+      },
+    ],
+  },
+  {
+    section: "Abschnitt 2 – Aufbau und Organisation",
+    items: [
+      {
+        title: "§ 5 Behördenstruktur",
+        paragraphs: ["Die Landespolizei Bitterhafen gliedert sich in:"],
+        bullets: ["Polizeipräsidium Bitterhafen", "Reviere und Polizeiposten", "Spezialeinheiten (z. B. SEK, Kripo, Verkehrsdienst)", "Verwaltung und Ausbildungseinrichtungen"],
+      },
+      {
+        title: "§ 6 Führungsstrukturen und Verantwortlichkeiten",
+        bullets: [
+          "Die Befehlsgewalt liegt beim Polizeipräsidenten der Landespolizei Bitterhafen.",
+          "Die Führung erfolgt nach dem Prinzip der Unterordnung: Jeder Beamte ist Vorgesetzten gegenüber verpflichtet und Untergebenen gegenüber verantwortlich.",
+          "In Abwesenheit des direkten Vorgesetzten übernimmt der ranghöchste oder dienstälteste Beamte die Einsatzleitung.",
+        ],
+      },
+      {
+        title: "§ 7 Dienstgrade und deren Befugnisse",
+        paragraphs: ["Die Dienstgrade der LaPol Bitterhafen sind in aufsteigender Reihenfolge:"],
+        bullets: [
+          "Polizeimeister-Anwärter",
+          "Polizeimeister",
+          "Polizeiobermeister",
+          "Polizeihauptmeister",
+          "Erster Polizeihauptmeister",
+          "Kommissar",
+          "Oberkommissar",
+          "Hauptkommissar",
+          "Erster Hauptkommissar",
+          "Polizeirat",
+          "Polizeivizepräsident",
+          "Polizeipräsident",
+        ],
+        extra: [
+          "Jeder höhere Dienstgrad ist zur Weisungserteilung gegenüber niedrigeren Dienstgraden berechtigt.",
+          "Dienstgrade dienen der klaren Befehlskette und Rechenschaftspflicht.",
+        ],
+      },
+    ],
+  },
+  {
+    section: "Abschnitt 3 – Dienstbetrieb",
+    items: [
+      {
+        title: "§ 8 Dienst- und Meldewesen",
+        bullets: [
+          "Jeder Beamte hat sich zu Dienstbeginn ordnungsgemäß im Funk oder beim ranghöchsten Beamten zu melden.",
+          "Der Dienst endet erst nach Abmeldung und Übergabe der Ausrüstung. Bei Dienstende ist die Ausrüstung im Schließfach zu verschließen. Außer Dienst ist es strengstens verboten, Dienstgegenstände mit sich zu führen.",
+          "Krankmeldungen, Dienstunfähigkeit oder verspätetes Erscheinen zu Veranstaltungen sind unverzüglich an den Vorgesetzten zu melden.",
+        ],
+      },
+      {
+        title: "§ 9 Streifendienst und Einsatzplanung",
+        paragraphs: ["Streifen dienen der Aufrechterhaltung von Sicherheit und Ordnung im öffentlichen Raum. Beamte auf Streife sind verpflichtet:"],
+        bullets: ["regelmäßig Präsenz zu zeigen", "präventive Kontrollen durchzuführen", "Funkbereitschaft zu halten", "auf Einsatzanforderungen unverzüglich zu reagieren"],
+      },
+      {
+        title: "§ 10 Funk- und Meldewesen",
+        bullets: [
+          "Der Funkverkehr dient der Einsatzkoordination und Sicherheit.",
+          "Funkdisziplin ist zu jeder Zeit einzuhalten: keine unnötigen Gespräche, klare und kurze Durchsagen, Funkrufnamen gemäß Funkordnung.",
+          "Alle relevanten Einsatzmeldungen sind im Einsatzbericht zu dokumentieren.",
+        ],
+      },
+    ],
+  },
+  {
+    section: "Abschnitt 4 – Einsatz und Taktik",
+    items: [
+      {
+        title: "§ 11 Einsatzgrundsätze",
+        bullets: [
+          "Sicherheit der Beamten hat oberste Priorität (Eigensicherung).",
+          "Maßnahmen sind stets verhältnismäßig zu wählen.",
+          "Kooperation und Kommunikation im Team sind zwingend.",
+          "Jede Maßnahme ist nachvollziehbar zu dokumentieren.",
+        ],
+      },
+      {
+        title: "§ 12 Vorgehen bei Personenkontrollen und Festnahmen",
+        bullets: [
+          "Personenkontrollen sind sachlich, rechtmäßig und respektvoll durchzuführen.",
+          "Bei Festnahmen ist der Betroffene über den Grund der Maßnahme sowie über seine Rechte und Pflichten zu informieren (siehe Anlage 1).",
+          "Widerstand ist mit angemessenen Mitteln zu brechen, unnötige Gewalt ist zu vermeiden.",
+          "Nach der Festnahme ist eine Sicherungsdurchsuchung vorzunehmen.",
+        ],
+      },
+      {
+        title: "§ 13 Verkehrskontrollen und Absicherungen",
+        bullets: [
+          "Verkehrskontrollen sind sicherheitsgerecht durchzuführen (Absicherung, Warnleuchten, Handschuhe, Weste).",
+          "Der Beamte hat sich mit Namen und Dienststelle vorzustellen.",
+          "Bei Verstößen ist nach geltender Rechtslage zu verfahren.",
+          "Unfallstellen sind umgehend abzusichern und zu dokumentieren.",
+        ],
+      },
+      {
+        title: "§ 14 Maßnahmen bei Schusswaffengebrauch",
+        bullets: [
+          "Der Schusswaffengebrauch ist nur zulässig, wenn andere Maßnahmen erfolglos oder untauglich sind.",
+          "Jeder Schusswaffengebrauch ist unverzüglich zu melden und zu dokumentieren.",
+          "Der Gebrauch dient niemals der Bestrafung, sondern ausschließlich der Gefahrenabwehr.",
+        ],
+      },
+    ],
+  },
+  {
+    section: "Abschnitt 5 – Ausstattung und Ordnung",
+    items: [
+      {
+        title: "§ 15 Uniformordnung",
+        bullets: [
+          "Im Dienst ist die vorgeschriebene Uniform vollständig und ordentlich zu tragen.",
+          "Ausnahmen bedürfen der Genehmigung des Vorgesetzten.",
+          "Dienstkleidung darf nicht privat genutzt werden.",
+        ],
+      },
+      {
+        title: "§ 16 Dienstwaffen und Ausrüstung",
+        bullets: [
+          "Jeder Beamte ist für den ordnungsgemäßen Zustand seiner Waffe verantwortlich.",
+          "Dienstwaffen dürfen nur im Dienst und in zulässigen Situationen geführt werden.",
+          "Schutzweste und Funkgerät sind verpflichtend zu tragen, sofern nicht anders angeordnet.",
+          "Verlust oder Beschädigung von Ausrüstung ist sofort zu melden.",
+        ],
+      },
+      {
+        title: "§ 17 Dienstfahrzeuge",
+        bullets: [
+          "Dienstfahrzeuge dürfen nur von geschultem Personal geführt werden.",
+          "Der Fahrer ist verantwortlich für den technischen Zustand und die Einsatzbereitschaft.",
+          "Blaulicht und Martinshorn dürfen nur bei Einsatzfahrten benutzt werden.",
+        ],
+      },
+    ],
+  },
+  {
+    section: "Abschnitt 6 – Disziplinar- und Beschwerdewesen",
+    items: [
+      {
+        title: "§ 18 Disziplinarverstöße und Sanktionen",
+        paragraphs: ["Verstöße gegen die LPDV oder gegen polizeiliche Grundsätze werden dienstrechtlich verfolgt. Mögliche Maßnahmen:"],
+        bullets: ["Ermahnung", "Verwarnung", "Degradierung", "Entlassung aus dem Polizeidienst"],
+        extra: ["Die Entscheidung trifft die Dienstaufsicht oder das Disziplinarkomitee."],
+      },
+      {
+        title: "§ 19 Dienstaufsicht und interne Ermittlungen",
+        bullets: [
+          "Die Dienstaufsicht überwacht die Einhaltung dieser Vorschrift.",
+          "Interne Ermittlungen werden durch den Leitenden Disziplinar Beauftragten geführt.",
+          "Beamte sind zur Mitwirkung verpflichtet.",
+        ],
+      },
+      {
+        title: "§ 20 Schlussbestimmungen",
+        bullets: [
+          "Diese Dienstvorschrift tritt mit ihrer Veröffentlichung in Kraft.",
+          "Änderungen bedürfen der Genehmigung durch die Behördenleitung.",
+          "Jeder Beamte ist verpflichtet, den Inhalt dieser Vorschrift zu kennen und anzuwenden.",
+        ],
+      },
+    ],
+  },
+] as const;
+
 export function WissensdatenbankAppView() {
+  const [activeCategory, setActiveCategory] = useState<(typeof WISSEN_CATEGORIES)[number]["key"] | null>(null);
+  const activeCategoryMeta = useMemo(() => WISSEN_CATEGORIES.find((entry) => entry.key === activeCategory) ?? null, [activeCategory]);
+
+  const isDienstvorschriften = activeCategory === "dienstvorschriften";
+
   return (
     <AppShell breadcrumb="Hammer Modding CopLink / Wissensdatenbank" title="Wissensdatenbank">
-      <div className="grid gap-4 md:grid-cols-2">
-        {[
-          ["Dienstvorschriften", "Interne Regeln, Abläufe und Standards"],
-          ["Gesetzesgrundlagen", "Schneller Überblick über zentrale Normen"],
-          ["Formulare & Vorlagen", "Standardtexte und Einsatzvorlagen"],
-          ["Ausbildung", "Leitfäden, Prüfungen und Schulungsunterlagen"],
-        ].map(([title, desc]) => (
-          <div key={title} className="rounded-2xl border border-white/8 bg-black/15 p-5">
-            <h3 className="text-lg font-bold text-white">{title}</h3>
-            <p className="mt-3 text-sm text-white/60">{desc}</p>
+      {!activeCategory ? (
+        <div className="grid gap-4 md:grid-cols-2">
+          {WISSEN_CATEGORIES.map((entry) => (
+            <button
+              key={entry.key}
+              type="button"
+              onClick={() => setActiveCategory(entry.key)}
+              className="group relative overflow-hidden rounded-2xl border border-white/10 bg-black/20 p-5 text-left transition-all duration-200 hover:border-red-500/30 hover:bg-black/30 hover:shadow-[0_12px_36px_rgba(0,0,0,0.28)]"
+            >
+              <div className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${entry.accent} opacity-70 transition-opacity duration-200 group-hover:opacity-100`} />
+              <div className="relative">
+                <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-white/45">
+                  Öffnen
+                </div>
+                <h3 className="text-lg font-bold text-white">{entry.title}</h3>
+                <p className="mt-3 text-sm text-white/60">{entry.desc}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-[28px] border border-white/10 bg-black/20 p-4 sm:p-5">
+          <div className="flex flex-col gap-4 border-b border-white/8 pb-5 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.32em] text-white/35">Wissensdatenbank</p>
+              <h2 className="mt-2 text-2xl font-bold text-white">{activeCategoryMeta?.title}</h2>
+              <p className="mt-2 max-w-3xl text-sm text-white/58">
+                {isDienstvorschriften
+                  ? "Dienstvorschriften im CopLink-Stil. Übersichtlich gegliedert, ruhig lesbar und direkt einsatzfähig für den internen Dienstbetrieb."
+                  : "Dieser Bereich ist vorbereitet und kann später mit eigenen Inhalten, Vorlagen oder Leitfäden ergänzt werden."}
+              </p>
+            </div>
+            <button type="button" onClick={() => setActiveCategory(null)} className="ui-btn ui-btn-inline self-start">Zurück</button>
           </div>
-        ))}
-      </div>
+
+          {isDienstvorschriften ? (
+            <div className="mt-5 grid gap-5 xl:grid-cols-[300px_minmax(0,1fr)]">
+              <aside className="rounded-2xl border border-white/8 bg-black/25 p-4">
+                <p className="text-[11px] uppercase tracking-[0.28em] text-white/35">Inhaltsverzeichnis</p>
+                <div className="mt-4 space-y-2">
+                  {DIENSTVORSCHRIFTEN_SECTIONS.map((section) => (
+                    <div key={section.section} className="rounded-xl border border-white/8 bg-white/[0.03] px-4 py-3 text-sm text-white/78">
+                      {section.section}
+                    </div>
+                  ))}
+                </div>
+              </aside>
+
+              <div className="space-y-5">
+                <div className="rounded-2xl border border-red-500/15 bg-gradient-to-r from-red-950/50 via-red-950/20 to-black/20 p-5">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className="rounded-full border border-red-400/20 bg-red-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.25em] text-red-100/80">Landespolizei Bitterhafen</span>
+                    <span className="rounded-full border border-white/8 bg-white/[0.04] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.25em] text-white/45">LPDV</span>
+                  </div>
+                  <h3 className="mt-4 text-xl font-bold text-white">Landespolizei-Dienstvorschrift (LPDV) – LaPol Bitterhafen</h3>
+                  <p className="mt-2 text-sm leading-6 text-white/62">Verbindliche interne Dienstvorschrift für Organisation, Dienstbetrieb, Einsatzgrundsätze, Ausstattung und disziplinarische Ordnung der Landespolizei Bitterhafen.</p>
+                </div>
+
+                {DIENSTVORSCHRIFTEN_SECTIONS.map((section) => (
+                  <section key={section.section} className="rounded-2xl border border-white/8 bg-black/22 p-5">
+                    <div className="mb-4 flex items-center justify-between gap-4">
+                      <h4 className="text-lg font-bold text-white">{section.section}</h4>
+                      <span className="rounded-full border border-white/8 bg-white/[0.04] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-white/40">Dienstvorschrift</span>
+                    </div>
+
+                    <div className="space-y-4">
+                      {section.items.map((item) => (
+                        <div key={item.title} className="rounded-2xl border border-white/7 bg-white/[0.03] p-4">
+                          <h5 className="text-base font-semibold text-white">{item.title}</h5>
+                          {item.paragraphs?.map((paragraph) => (
+                            <p key={paragraph} className="mt-3 text-sm leading-6 text-white/70">{paragraph}</p>
+                          ))}
+                          {item.bullets?.length ? (
+                            <ul className="mt-3 space-y-2">
+                              {item.bullets.map((bullet) => (
+                                <li key={bullet} className="flex gap-3 text-sm leading-6 text-white/72">
+                                  <span className="mt-[9px] h-1.5 w-1.5 shrink-0 rounded-full bg-red-400/80" />
+                                  <span>{bullet}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
+                          {item.extra?.map((line) => (
+                            <p key={line} className="mt-3 text-sm leading-6 text-white/66">{line}</p>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="mt-5 rounded-2xl border border-white/8 bg-black/25 p-6">
+              <p className="text-sm leading-6 text-white/62">Für <span className="font-semibold text-white">{activeCategoryMeta?.title}</span> ist die Oberfläche vorbereitet. Die Inhalte können später im gleichen Stil wie die Dienstvorschriften ergänzt und strukturiert werden.</p>
+            </div>
+          )}
+        </div>
+      )}
     </AppShell>
   );
 }

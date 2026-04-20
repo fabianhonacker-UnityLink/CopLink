@@ -1,4 +1,10 @@
-export type StrafgesetzId = "stgb" | "stvo" | "owig" | "btmg" | "waffg" | "dsg";
+export type StrafgesetzId = string;
+
+export type StrafgesetzRecord = {
+  id: StrafgesetzId;
+  label: string;
+  accent: string;
+};
 
 export type StrafkatalogEintrag = {
   id: string;
@@ -24,7 +30,7 @@ export type StrafSummen = {
   heWasCapped: boolean;
 };
 
-export const STRAFGESETZE: { id: StrafgesetzId; label: string; accent: string }[] = [
+export const STRAFGESETZE: StrafgesetzRecord[] = [
   { id: "stgb", label: "StGB – Strafgesetzbuch", accent: "rose" },
   { id: "stvo", label: "StVO – Straßenverkehrsordnung", accent: "sky" },
   { id: "owig", label: "OWiG – Ordnungswidrigkeitengesetz", accent: "amber" },
@@ -125,9 +131,9 @@ export const STRAFKATALOG: StrafkatalogEintrag[] = [
   entry("dsg", "815", "Datenschutz im medizinischen Bereich", 10000, 20, 0),
 ];
 
-export function getOffensesByIds(ids: string[]) {
+export function getOffensesByIds(ids: string[], katalog: StrafkatalogEintrag[] = STRAFKATALOG) {
   const idSet = new Set(ids);
-  return STRAFKATALOG.filter((entry) => idSet.has(entry.id));
+  return katalog.filter((entry) => idSet.has(entry.id));
 }
 
 export function getModifierFactor(modifiers: StrafModifierState) {
@@ -137,8 +143,12 @@ export function getModifierFactor(modifiers: StrafModifierState) {
   return Math.max(0, factor);
 }
 
-export function calculateStrafSummen(offenseIds: string[], modifiers: StrafModifierState): StrafSummen {
-  const offenses = getOffensesByIds(offenseIds);
+export function calculateStrafSummen(
+  offenseIds: string[],
+  modifiers: StrafModifierState,
+  katalog: StrafkatalogEintrag[] = STRAFKATALOG,
+): StrafSummen {
+  const offenses = getOffensesByIds(offenseIds, katalog);
   const factor = getModifierFactor(modifiers);
 
   const rawFine = offenses.reduce((sum, offense) => sum + offense.fine, 0);

@@ -93,7 +93,7 @@ export const APPS: AppConfig[] = [
   { id: "stempeluhr", label: "Stempeluhr", short: "ST", accent: "from-emerald-400 to-green-500", desktop: true, pinned: true, defaultSize: { width: 760, height: 420 } },
   { id: "einstellungen", label: "Einstellungen", short: "EI", accent: "from-violet-500 to-fuchsia-500", desktop: true, defaultSize: { width: 980, height: 600 } },
   { id: "ausbildungen", label: "Ausbildungen", short: "AU", accent: "from-cyan-500 to-sky-500", desktop: true, defaultSize: { width: 760, height: 460 } },
-  { id: "taschenrechner", label: "Taschenrechner", short: "TR", accent: "from-indigo-400 to-violet-500", desktop: true, pinned: true, defaultSize: { width: 360, height: 470 } },
+  { id: "taschenrechner", label: "Taschenrechner", short: "TR", accent: "from-indigo-400 to-violet-500", desktop: true, pinned: true, defaultSize: { width: 760, height: 660 } },
   { id: "gefaengnis", label: "Gefängnis", short: "GE", accent: "from-slate-500 to-zinc-600", desktop: true, defaultSize: { width: 900, height: 520 } },
   { id: "strafen", label: "Strafen", short: "SF", accent: "from-red-600 to-rose-500", desktop: true, defaultSize: { width: 1120, height: 640 } },
   { id: "urlaub", label: "Urlaub", short: "UR", accent: "from-teal-500 to-emerald-500", desktop: true, defaultSize: { width: 760, height: 430 } },
@@ -146,11 +146,34 @@ export function getWindowPlacement(app: AppConfig, openCount: number, desktop: D
   const fallbackHeight = app.defaultSize?.height ?? 520;
 
   if (!desktop) {
+    if (app.id === "taschenrechner") {
+      return {
+        width: fallbackWidth,
+        height: fallbackHeight,
+        x: 820,
+        y: 300,
+      };
+    }
+
     return {
       width: Math.max(fallbackWidth, 1280),
       height: Math.max(fallbackHeight, 700),
       x: 420,
       y: 42,
+    };
+  }
+
+  if (app.id === "taschenrechner") {
+    const width = clamp(fallbackWidth, 700, Math.max(700, desktop.width - 28));
+    const height = clamp(fallbackHeight, 620, Math.max(620, desktop.height - 88));
+    const bottomMargin = 102;
+    const rightMargin = 24;
+
+    return {
+      width,
+      height,
+      x: clamp(desktop.width - width - rightMargin, 40, Math.max(40, desktop.width - width - 20)),
+      y: clamp(desktop.height - height - bottomMargin, 140, Math.max(140, desktop.height - height - 84)),
     };
   }
 

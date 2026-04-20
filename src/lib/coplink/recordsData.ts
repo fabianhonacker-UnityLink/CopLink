@@ -411,6 +411,56 @@ export type AsservatenItemRecord = {
   notiz: string;
 };
 
+
+export const AUSBILDUNG_RANK_OPTIONS = [
+  "Polizeirat",
+  "Polizeihauptkommissar",
+  "Polizeikommissar",
+  "Polizeikommissaranwärter",
+  "Erster Polizeihauptmeister",
+  "Polizeihauptmeister",
+  "Polizeimeister",
+  "Polizeimeisteranwärter",
+] as const;
+
+export type AusbildungRank = (typeof AUSBILDUNG_RANK_OPTIONS)[number];
+export type AusbildungRequestStatus = "offen" | "bestätigt" | "abgelehnt";
+
+export type AusbildungRequestRecord = {
+  id: string;
+  officerId: string;
+  requestedAt: string;
+  status: AusbildungRequestStatus;
+  decidedAt: string | null;
+  decidedByOfficerId: string | null;
+  note: string;
+};
+
+export type AusbildungRecord = {
+  id: string;
+  title: string;
+  code: string;
+  content: string;
+  scheduledDate: string;
+  allowSelfSignup: boolean;
+  minimumRank: AusbildungRank;
+  instructorOfficerIds: string[];
+  requests: AusbildungRequestRecord[];
+  createdAt: string;
+};
+
+export type UrlaubType = "urlaub" | "abwesenheit";
+
+export type UrlaubRecord = {
+  id: string;
+  officerId: string;
+  startDate: string;
+  endDate: string;
+  type: UrlaubType;
+  reason: string;
+  createdAt: string;
+};
+
 export type OfficerShiftRecord = {
   id: string;
   startedAt: string;
@@ -426,6 +476,33 @@ export type OfficerRecord = {
   totalDutyMinutes: number;
   currentShiftStartedAt: string | null;
   shiftHistory: OfficerShiftRecord[];
+};
+
+
+
+export type LeitstellenStatusRecord = {
+  id: string;
+  code: string;
+  label: string;
+  shortLabel: string;
+  description: string;
+  tone: BadgeTone;
+  sortOrder: number;
+  custom: boolean;
+};
+
+export type LeitstellenStreifenRecord = {
+  id: string;
+  name: string;
+  callSign: string;
+  vehicle: string;
+  imageVariant: "urban" | "interceptor" | "suv";
+  assignedOfficerIds: string[];
+  statusId: string;
+};
+
+export type LeitstellenDispatcherRecord = {
+  officerId: string | null;
 };
 
 export type WeaponFormState = {
@@ -512,6 +589,9 @@ export const INITIAL_ASSERVATEN_ITEMS: AsservatenItemRecord[] = [
   },
 ];
 
+export const INITIAL_AUSBILDUNGEN: AusbildungRecord[] = [];
+export const INITIAL_URLAUB_RECORDS: UrlaubRecord[] = [];
+
 export const INITIAL_OFFICER_RECORDS: OfficerRecord[] = [
   {
     id: "off-1",
@@ -541,6 +621,145 @@ export const INITIAL_OFFICER_RECORDS: OfficerRecord[] = [
     shiftHistory: [],
   },
 ];
+
+
+
+export const INITIAL_LEITSTELLEN_STATUS_RECORDS: LeitstellenStatusRecord[] = [
+  {
+    id: "status-1",
+    code: "1",
+    label: "einsatzbereit auf Funk / auf Streife",
+    shortLabel: "Status 1",
+    description: "Streife ist einsatzbereit und auf Funk / Streife verfügbar.",
+    tone: "green",
+    sortOrder: 10,
+    custom: false,
+  },
+  {
+    id: "status-2",
+    code: "2",
+    label: "einsatzbereit auf Dienststelle",
+    shortLabel: "Status 2",
+    description: "Streife ist einsatzbereit auf der Dienststelle.",
+    tone: "cyan",
+    sortOrder: 20,
+    custom: false,
+  },
+  {
+    id: "status-3",
+    code: "3",
+    label: "Einsatz übernommen / auf Anfahrt",
+    shortLabel: "Status 3",
+    description: "Streife hat den Einsatz übernommen und ist auf Anfahrt.",
+    tone: "yellow",
+    sortOrder: 30,
+    custom: false,
+  },
+  {
+    id: "status-4",
+    code: "4",
+    label: "am Einsatzort",
+    shortLabel: "Status 4",
+    description: "Streife befindet sich am Einsatzort.",
+    tone: "yellow",
+    sortOrder: 40,
+    custom: false,
+  },
+  {
+    id: "status-5",
+    code: "5",
+    label: "Sprechwunsch",
+    shortLabel: "Status 5",
+    description: "Streife hat einen normalen Sprechwunsch.",
+    tone: "red",
+    sortOrder: 50,
+    custom: false,
+  },
+  {
+    id: "status-6",
+    code: "6",
+    label: "nicht einsatzbereit",
+    shortLabel: "Status 6",
+    description: "Streife ist aktuell nicht einsatzbereit.",
+    tone: "red",
+    sortOrder: 60,
+    custom: false,
+  },
+  {
+    id: "status-7",
+    code: "7",
+    label: "einsatzgebunden",
+    shortLabel: "Status 7",
+    description: "Streife ist an einen Einsatz gebunden.",
+    tone: "yellow",
+    sortOrder: 70,
+    custom: false,
+  },
+  {
+    id: "status-8",
+    code: "8",
+    label: "bedingt verfügbar",
+    shortLabel: "Status 8",
+    description: "Streife ist nur eingeschränkt verfügbar.",
+    tone: "cyan",
+    sortOrder: 80,
+    custom: false,
+  },
+  {
+    id: "status-0",
+    code: "0",
+    label: "priorisierter Sprechwunsch / dringend",
+    shortLabel: "Status 0",
+    description: "Dringender priorisierter Sprechwunsch der Streife.",
+    tone: "red",
+    sortOrder: 0,
+    custom: false,
+  },
+  {
+    id: "status-9",
+    code: "9",
+    label: "Quittung / Rückmeldung",
+    shortLabel: "Status 9",
+    description: "Streife quittiert oder meldet Rückmeldung.",
+    tone: "green",
+    sortOrder: 90,
+    custom: false,
+  },
+];
+
+export const INITIAL_LEITSTELLEN_STREIFEN: LeitstellenStreifenRecord[] = [
+  {
+    id: "streife-a11101",
+    name: "A11101",
+    callSign: "Adam 11-01",
+    vehicle: "Buffalo STX",
+    imageVariant: "urban",
+    assignedOfficerIds: [],
+    statusId: "status-6",
+  },
+  {
+    id: "streife-a11102",
+    name: "A11102",
+    callSign: "Adam 11-02",
+    vehicle: "Granger 3600LX",
+    imageVariant: "suv",
+    assignedOfficerIds: [],
+    statusId: "status-6",
+  },
+  {
+    id: "streife-a11103",
+    name: "A11103",
+    callSign: "Adam 11-03",
+    vehicle: "Stanier LE Cruiser",
+    imageVariant: "interceptor",
+    assignedOfficerIds: [],
+    statusId: "status-6",
+  },
+];
+
+export const INITIAL_LEITSTELLEN_DISPATCHER: LeitstellenDispatcherRecord = {
+  officerId: null,
+};
 
 export const INITIAL_KFZ_RECORDS: KfzRecord[] = [
   {

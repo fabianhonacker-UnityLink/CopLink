@@ -5,64 +5,15 @@ import { Fragment, useCallback, useContext, useEffect, useMemo, useRef, useState
 import DesktopIcon from "../components/DesktopIcon";
 import WindowFrame from "../components/WindowFrame";
 import { ActionBar, FancyCheckbox, FancyInput, FancySelect, FancyTextarea, FieldBlock, InfoCard, SectionTitle, StatusBadge, ToneBadge, UiButton, formatLinkedChargeStatus, getBadgeToneClass, getStrafanzeigeStatusMeta, type BadgeTone } from "../components/coplink/UiPrimitives";
-import { STRAFGESETZE, STRAFKATALOG, calculateStrafSummen, formatEuroValue, formatHeValue, formatPointsValue, formatStrafMeta, getOffensesByIds, type StrafModifierState, type StrafgesetzId, type StrafgesetzRecord, type StrafkatalogEintrag } from "../data/strafkatalog";
-import { ASSERVAT_OPTIONS, AUSBILDUNG_RANK_OPTIONS, INITIAL_AKTEN_RECORDS, INITIAL_AUSBILDUNGEN, INITIAL_ASSERVATEN_ITEMS, INITIAL_ASSERVATEN_SCHRAENKE, INITIAL_KFZ_RECORDS, INITIAL_LEITSTELLEN_DISPATCHER, INITIAL_LEITSTELLEN_STATUS_RECORDS, INITIAL_LEITSTELLEN_STREIFEN, INITIAL_OFFICER_RECORDS, INITIAL_STRAFANZEIGEN, INITIAL_URLAUB_RECORDS, INITIAL_WEAPON_RECORDS, KFZ_HU_STATUS_OPTIONS, KFZ_STATUS_OPTIONS, KFZ_VERSICHERUNG_OPTIONS, LICENSE_OPTIONS, VEHICLE_MODEL_OPTIONS, WEAPON_CATALOG_OPTIONS, WEAPON_STATUS_OPTIONS, formatHuDisplay, getHuTone, getInitialKfzForm, getInitialWeaponForm, getInsuranceTone, getOwnerRegistrationLabel, getOwnerRegistrationTone, getWeaponRegistrationLabel, getWeaponRegistrationTone, getWeaponStatusTone, STRAFANZEIGE_STATUS_OPTIONS, type AktenCharge, type AktenEntry, type AktenEntryType, type AktenLicense, type AktenRecord, type AktenRecordType, type AktenVehicle, type AusbildungRank, type AusbildungRecord, type AusbildungRequestRecord, type AusbildungRequestStatus, type AsservatenItemCategory, type AsservatenItemRecord, type AsservatenSchrankRecord, type KfzFormState, type KfzRecord, type LeitstellenDispatcherRecord, type LeitstellenStatusRecord, type LeitstellenStreifenRecord, type OfficerRecord, type PersonenAkteData, type SammelAkteData, type StrafanzeigeRecord, type StrafanzeigeStatus, type UrlaubRecord, type UrlaubType, type WeaponFormState, type WeaponRecord, type WeaponStatus } from "../lib/coplink/recordsData";
+import { STRAFGESETZE, STRAFKATALOG, calculateStrafSummen, formatEuroValue, formatHeValue, formatPointsValue, formatStrafMeta, getOffensesByIds, type StrafModifierState, type StrafgesetzId, type StrafkatalogEintrag } from "../data/strafkatalog";
+import { ASSERVAT_OPTIONS, INITIAL_AKTEN_RECORDS, INITIAL_ASSERVATEN_ITEMS, INITIAL_ASSERVATEN_SCHRAENKE, INITIAL_KFZ_RECORDS, INITIAL_LEITSTELLEN_DISPATCHER, INITIAL_LEITSTELLEN_STATUS_RECORDS, INITIAL_LEITSTELLEN_STREIFEN, INITIAL_OFFICER_RECORDS, INITIAL_STRAFANZEIGEN, INITIAL_WEAPON_RECORDS, KFZ_HU_STATUS_OPTIONS, KFZ_STATUS_OPTIONS, KFZ_VERSICHERUNG_OPTIONS, LICENSE_OPTIONS, VEHICLE_MODEL_OPTIONS, WEAPON_CATALOG_OPTIONS, WEAPON_STATUS_OPTIONS, formatHuDisplay, getHuTone, getInitialKfzForm, getInitialWeaponForm, getInsuranceTone, getOwnerRegistrationLabel, getOwnerRegistrationTone, getWeaponRegistrationLabel, getWeaponRegistrationTone, getWeaponStatusTone, STRAFANZEIGE_STATUS_OPTIONS, type AktenCharge, type AktenEntry, type AktenEntryType, type AktenLicense, type AktenRecord, type AktenRecordType, type AktenVehicle, type AsservatenItemCategory, type AsservatenItemRecord, type AsservatenSchrankRecord, type KfzFormState, type KfzRecord, type LeitstellenDispatcherRecord, type LeitstellenStatusRecord, type LeitstellenStreifenRecord, type OfficerRecord, type PersonenAkteData, type SammelAkteData, type StrafanzeigeRecord, type StrafanzeigeStatus, type WeaponFormState, type WeaponRecord, type WeaponStatus } from "../lib/coplink/recordsData";
 import { APPS, TASKBAR_PINNED, clamp, desktopApps, getApp, getInitialIconPositions, getWindowPlacement, pinnedApps, type AppConfig, type AppId, type DragState, type IconDragState, type IconPosition, type ResizeDirection, type ResizeState, type WindowState } from "../lib/coplink/desktopShell";
 import { QuickOpenContext, RecordsContext } from "../lib/coplink/appContexts";
 import { createStrafanzeigenId, formatDate, formatDateTimeStamp, formatOffenseMeta, formatTime, normalizeSearchValue } from "../lib/coplink/sharedUtils";
 import { AppShell, SearchInput } from "../components/coplink/AppChrome";
-import { EinstellungenAppView, EinsatzberichteAppView, ErmittlungenAppView, FunkAppView, GefaengnisAppView, MeinPcAppView, NotizenAppView, UnitsAppView, VorlagenAppView, WissensdatenbankAppView } from "../components/coplink/StaticAppViews";
+import { AusbildungenAppView, EinstellungenAppView, EinsatzberichteAppView, ErmittlungenAppView, FunkAppView, GefaengnisAppView, KalenderAppView, MeinPcAppView, NotizenAppView, UrlaubAppView, UnitsAppView, VorlagenAppView, WissensdatenbankAppView } from "../components/coplink/StaticAppViews";
 import hammerModdingCopLinkLogo from "../assets/coplink-logo-hm.png";
 import officerAvatarPlaceholder from "../assets/officer-avatar.png";
-
-
-const STRAFKATALOG_ACCENT_OPTIONS = [
-  { value: "rose", label: "Rot / Standard" },
-  { value: "sky", label: "Blau" },
-  { value: "amber", label: "Bernstein" },
-  { value: "emerald", label: "Grün" },
-  { value: "violet", label: "Violett" },
-  { value: "cyan", label: "Cyan" },
-] as const;
-
-const STRAFKATALOG_ACCENT_CLASSES: Record<string, string> = {
-  rose: "border-rose-400/30 bg-rose-500/10 text-rose-100",
-  sky: "border-sky-400/30 bg-sky-500/10 text-sky-100",
-  amber: "border-amber-400/30 bg-amber-500/10 text-amber-100",
-  emerald: "border-emerald-400/30 bg-emerald-500/10 text-emerald-100",
-  violet: "border-violet-400/30 bg-violet-500/10 text-violet-100",
-  cyan: "border-cyan-400/30 bg-cyan-500/10 text-cyan-100",
-};
-
-function getStrafgesetzAccentClass(accent: string) {
-  return STRAFKATALOG_ACCENT_CLASSES[accent] ?? STRAFKATALOG_ACCENT_CLASSES.rose;
-}
-
-function createStrafgesetzRecordId(label: string) {
-  const normalized = label
-    .toLowerCase()
-    .replace(/ä/g, "ae")
-    .replace(/ö/g, "oe")
-    .replace(/ü/g, "ue")
-    .replace(/ß/g, "ss")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-
-  return normalized || `gesetz-${Date.now()}`;
-}
-
-function createStrafkatalogRecordId(lawId: string, paragraph: string, title: string) {
-  const slug = title
-    .toLowerCase()
-    .replace(/ä/g, "ae")
-    .replace(/ö/g, "oe")
-    .replace(/ü/g, "ue")
-    .replace(/ß/g, "ss")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-
-  return `${lawId}-${paragraph}-${slug || Date.now()}`;
-}
 
 function formatDutyDuration(totalMinutes: number) {
   if (totalMinutes <= 0) return "0 Min.";
@@ -86,97 +37,6 @@ function getLiveDutyMinutes(officer: OfficerRecord, currentTime: Date) {
 function formatDutyTimestamp(value: string | null) {
   if (!value) return "—";
   return formatDateTimeStamp(new Date(value));
-}
-
-type OfficerDirectoryEntry = {
-  officer: OfficerRecord;
-  name: string;
-  dienstnummer: string;
-  rolle: string;
-};
-
-function buildOfficerDirectory(officerRecords: OfficerRecord[], aktenRecords: AktenRecord[]): OfficerDirectoryEntry[] {
-  return officerRecords
-    .map((officer) => {
-      const personRecord =
-        aktenRecords.find((record) => record.id === officer.personAkteId && record.kind === "personenakte" && record.person) ?? null;
-      if (!personRecord || personRecord.kind !== "personenakte" || !personRecord.person) return null;
-      return {
-        officer,
-        name: personRecord.person.vorNachname,
-        dienstnummer: officer.dienstnummer,
-        rolle: officer.rolle,
-      };
-    })
-    .filter(Boolean) as OfficerDirectoryEntry[];
-}
-
-function toDateOnlyValue(value: Date) {
-  const year = value.getFullYear();
-  const month = String(value.getMonth() + 1).padStart(2, "0");
-  const day = String(value.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function parseDateOnly(value: string) {
-  const [year, month, day] = value.split("-").map(Number);
-  return new Date(year, (month || 1) - 1, day || 1, 12, 0, 0, 0);
-}
-
-function formatCalendarDate(value: string) {
-  if (!value) return "—";
-  return parseDateOnly(value).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
-}
-
-function isDateBetween(value: string, startDate: string, endDate: string) {
-  return value >= startDate && value <= endDate;
-}
-
-function enumerateDateRange(startDate: string, endDate: string) {
-  if (!startDate || !endDate) return [] as string[];
-  const dates: string[] = [];
-  const cursor = parseDateOnly(startDate);
-  const target = parseDateOnly(endDate);
-
-  while (cursor.getTime() <= target.getTime()) {
-    dates.push(toDateOnlyValue(cursor));
-    cursor.setDate(cursor.getDate() + 1);
-  }
-
-  return dates;
-}
-
-function buildMonthCells(viewDate: Date) {
-  const year = viewDate.getFullYear();
-  const month = viewDate.getMonth();
-  const firstDay = new Date(year, month, 1, 12, 0, 0, 0);
-  const daysInMonth = new Date(year, month + 1, 0, 12, 0, 0, 0).getDate();
-  const startOffset = (firstDay.getDay() + 6) % 7;
-  const prevMonthDays = new Date(year, month, 0, 12, 0, 0, 0).getDate();
-  const todayKey = toDateOnlyValue(new Date());
-  const cells: Array<{ key: string; label: string; currentMonth: boolean; isToday: boolean }> = [];
-
-  for (let index = startOffset - 1; index >= 0; index -= 1) {
-    const day = prevMonthDays - index;
-    const date = new Date(year, month - 1, day, 12, 0, 0, 0);
-    const key = toDateOnlyValue(date);
-    cells.push({ key, label: String(day), currentMonth: false, isToday: key === todayKey });
-  }
-
-  for (let day = 1; day <= daysInMonth; day += 1) {
-    const date = new Date(year, month, day, 12, 0, 0, 0);
-    const key = toDateOnlyValue(date);
-    cells.push({ key, label: String(day), currentMonth: true, isToday: key === todayKey });
-  }
-
-  while (cells.length < 42) {
-    const day = cells.length - daysInMonth - startOffset + 1;
-    const date = new Date(year, month + 1, day, 12, 0, 0, 0);
-    const key = toDateOnlyValue(date);
-    cells.push({ key, label: String(day), currentMonth: false, isToday: key === todayKey });
-  }
-
-  return cells;
 }
 
 function getLeitstellenStatusTone(status: LeitstellenStatusRecord | null | undefined): BadgeTone {
@@ -3097,117 +2957,46 @@ function CalculatorApp() {
     "+",
   ];
 
-  function getButtonClass(button: string) {
-    if (button === "=") {
-      return "border-red-400/40 bg-red-500/20 text-red-50 shadow-[0_0_18px_rgba(239,68,68,0.14)] hover:bg-red-500/28";
-    }
-
-    if (button === "C") {
-      return "border-amber-400/35 bg-amber-500/15 text-amber-50 shadow-[0_0_18px_rgba(245,158,11,0.12)] hover:bg-amber-500/24";
-    }
-
-    if (["/", "*", "-", "+", "(", ")"].includes(button)) {
-      return "border-cyan-400/30 bg-cyan-500/12 text-cyan-50 shadow-[0_0_18px_rgba(34,211,238,0.1)] hover:bg-cyan-500/20";
-    }
-
-    return "border-white/10 bg-white/[0.04] text-white hover:bg-white/[0.08]";
-  }
-
   return (
     <div className="h-full bg-[#0b0d13] p-4 text-white">
-      <div className="rounded-[28px] border border-red-500/20 bg-[radial-gradient(circle_at_top,rgba(153,27,27,0.16),transparent_38%),linear-gradient(180deg,rgba(9,12,18,0.98),rgba(5,8,14,0.98))] p-4 shadow-[0_0_40px_rgba(0,0,0,0.35)]">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-          <div className="lg:w-[240px] lg:flex-none">
-            <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-              <p className="text-[11px] uppercase tracking-[0.32em] text-red-300/70">Hammer Modding CopLink</p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white">Taschenrechner</h2>
-              <p className="mt-2 text-sm leading-6 text-white/55">
-                Dunkler Einsatzrechner im CopLink-Stil mit ruhiger Behördenoptik, aber etwas technischer und polizeinäher.
-              </p>
+      <div className="rounded-2xl border border-white/10 bg-black/40 p-4">
+        <p className="text-xs uppercase tracking-[0.28em] text-red-300/70">Hammer Modding CopLink / Taschenrechner</p>
+        <div className="mt-4 rounded-xl border border-white/10 bg-black/40 p-4">
+          <div className="text-sm text-white/50">{expression || "0"}</div>
+          <div className="mt-2 text-3xl font-bold">{result}</div>
+        </div>
 
-              <div className="mt-5 space-y-3">
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-                  <p className="text-[10px] uppercase tracking-[0.28em] text-white/35">Modus</p>
-                  <p className="mt-1 text-sm font-semibold text-white">Dienstrechner</p>
-                  <p className="mt-1 text-xs text-white/45">Für schnelle Berechnungen im laufenden Einsatz.</p>
-                </div>
+        <div className="mt-3 text-xs text-white/35">NumPad und Tastatur-Eingabe aktiv</div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-2xl border border-cyan-400/20 bg-cyan-500/10 p-3">
-                    <p className="text-[10px] uppercase tracking-[0.24em] text-cyan-100/65">Eingabe</p>
-                    <p className="mt-1 text-sm font-semibold text-cyan-50">NumPad</p>
-                  </div>
-                  <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-3">
-                    <p className="text-[10px] uppercase tracking-[0.24em] text-red-100/65">Format</p>
-                    <p className="mt-1 text-sm font-semibold text-red-50">DE / .</p>
-                  </div>
-                </div>
+        <div className="mt-4 grid grid-cols-4 gap-3">
+          {buttons.map((button) => (
+            <button
+              key={button}
+              type="button"
+              onClick={() => {
+                if (button === "C") {
+                  clearValue();
+                  return;
+                }
 
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-                  <p className="text-[10px] uppercase tracking-[0.28em] text-white/35">Schnelltasten</p>
-                  <div className="mt-2 flex flex-wrap gap-2 text-xs text-white/70">
-                    <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1">Enter = auswerten</span>
-                    <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1">C / Esc = leeren</span>
-                    <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1">Backspace = löschen</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+                if (button === "=") {
+                  evaluateExpression();
+                  return;
+                }
 
-          <div className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-black/25 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.28em] text-red-300/70">Hammer Modding CopLink / Taschenrechner</p>
-                <p className="mt-2 text-sm text-white/40">Polizeinaher Rechner im dunklen Leitstellen-Stil.</p>
-              </div>
-              <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.24em]">
-                <span className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-3 py-1 text-cyan-100/85">NumPad aktiv</span>
-                <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-white/65">Tastatur aktiv</span>
-              </div>
-            </div>
-
-            <div className="mt-4 rounded-[24px] border border-red-500/20 bg-[linear-gradient(180deg,rgba(2,6,12,0.98),rgba(9,14,22,0.98))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-              <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-3">
-                <div>
-                  <p className="text-[10px] uppercase tracking-[0.3em] text-white/35">Formel</p>
-                  <div className="mt-1 text-sm text-white/55">{expression || "0"}</div>
-                </div>
-                <div className="rounded-full border border-red-400/25 bg-red-500/10 px-3 py-1 text-[10px] uppercase tracking-[0.28em] text-red-100/70">
-                  Rechner bereit
-                </div>
-              </div>
-              <div className="mt-4">
-                <p className="text-[10px] uppercase tracking-[0.3em] text-white/35">Ergebnis</p>
-                <div className="mt-2 text-4xl font-bold tracking-tight text-white">{result}</div>
-              </div>
-            </div>
-
-            <div className="mt-4 grid grid-cols-4 gap-3">
-              {buttons.map((button) => (
-                <button
-                  key={button}
-                  type="button"
-                  onClick={() => {
-                    if (button === "C") {
-                      clearValue();
-                      return;
-                    }
-
-                    if (button === "=") {
-                      evaluateExpression();
-                      return;
-                    }
-
-                    appendValue(button);
-                  }}
-                  className={`rounded-2xl border px-3 py-3 text-center text-lg font-semibold transition duration-150 ${getButtonClass(button)}`}
-                >
-                  {button}
-                </button>
-              ))}
-            </div>
-          </div>
+                appendValue(button);
+              }}
+              className={`rounded-xl border px-3 py-3 text-center font-semibold transition ${
+                button === "="
+                  ? "border-red-400/40 bg-red-500/20 hover:bg-red-500/30"
+                  : button === "C"
+                  ? "border-amber-400/35 bg-amber-500/15 hover:bg-amber-500/22"
+                  : "border-white/10 bg-white/5 hover:bg-white/10"
+              }`}
+            >
+              {button}
+            </button>
+          ))}
         </div>
       </div>
     </div>
@@ -3215,95 +3004,36 @@ function CalculatorApp() {
 }
 
 function StrafenApp() {
-  const {
-    strafgesetzRecords,
-    setStrafgesetzRecords,
-    strafkatalogRecords,
-    setStrafkatalogRecords,
-    strafanzeigenRecords,
-  } = useContext(RecordsContext);
-  const [viewMode, setViewMode] = useState<"catalog" | "master">("catalog");
   const [search, setSearch] = useState("");
   const [lawFilter, setLawFilter] = useState<"alle" | StrafgesetzId>("alle");
   const [rowsPerSection, setRowsPerSection] = useState("10");
-  const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
-  const [selectedLawId, setSelectedLawId] = useState<string>(strafgesetzRecords[0]?.id ?? "");
-  const [lawEditorOpen, setLawEditorOpen] = useState(false);
-  const [editingLawId, setEditingLawId] = useState<string | null>(null);
-  const [lawForm, setLawForm] = useState({
-    label: "",
-    accent: "rose",
+  const [openSections, setOpenSections] = useState<Record<StrafgesetzId, boolean>>({
+    stgb: true,
+    stvo: false,
+    owig: false,
+    btmg: false,
+    waffg: false,
+    dsg: false,
   });
-  const [entryEditorOpen, setEntryEditorOpen] = useState(false);
-  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
-  const [entryForm, setEntryForm] = useState({
-    lawId: strafgesetzRecords[0]?.id ?? "",
-    paragraph: "",
-    title: "",
-    fine: "",
-    he: "",
-    points: "",
-    notes: "",
-  });
-  const [managementSearch, setManagementSearch] = useState("");
-  const [catalogInfo, setCatalogInfo] = useState("");
-
-  useEffect(() => {
-    setOpenSections((current) => {
-      const next = { ...current };
-      strafgesetzRecords.forEach((law, index) => {
-        if (typeof next[law.id] === "undefined") {
-          next[law.id] = index === 0;
-        }
-      });
-      Object.keys(next).forEach((key) => {
-        if (!strafgesetzRecords.some((law) => law.id === key)) {
-          delete next[key];
-        }
-      });
-      return next;
-    });
-  }, [strafgesetzRecords]);
-
-  useEffect(() => {
-    if (!selectedLawId || !strafgesetzRecords.some((law) => law.id === selectedLawId)) {
-      setSelectedLawId(strafgesetzRecords[0]?.id ?? "");
-    }
-  }, [selectedLawId, strafgesetzRecords]);
-
-  useEffect(() => {
-    if (!entryEditorOpen) return;
-    setEntryForm((current) => ({
-      ...current,
-      lawId: current.lawId || selectedLawId || strafgesetzRecords[0]?.id || "",
-    }));
-  }, [entryEditorOpen, selectedLawId, strafgesetzRecords]);
-
-  const lawFilterOptions = useMemo(
-    () => [{ value: "alle", label: "Alle Gesetzbücher" }, ...strafgesetzRecords.map((law) => ({ value: law.id, label: law.label }))],
-    [strafgesetzRecords],
-  );
 
   const filteredEntries = useMemo(() => {
     const term = normalizeSearchValue(search);
-    return strafkatalogRecords.filter((entry) => {
+    return STRAFKATALOG.filter((entry) => {
       const lawMatch = lawFilter === "alle" ? true : entry.lawId === lawFilter;
       const searchMatch = !term
         ? true
         : `${entry.paragraph} ${entry.title} ${entry.notes} ${entry.lawId}`.toLowerCase().includes(term);
       return lawMatch && searchMatch;
     });
-  }, [lawFilter, search, strafkatalogRecords]);
+  }, [lawFilter, search]);
 
   const groupedEntries = useMemo(
     () =>
-      strafgesetzRecords
-        .map((law) => ({
-          ...law,
-          entries: filteredEntries.filter((entry) => entry.lawId === law.id),
-        }))
-        .filter((law) => law.entries.length > 0),
-    [filteredEntries, strafgesetzRecords],
+      STRAFGESETZE.map((law) => ({
+        ...law,
+        entries: filteredEntries.filter((entry) => entry.lawId === law.id),
+      })).filter((law) => law.entries.length > 0),
+    [filteredEntries],
   );
 
   const rowsLimit = rowsPerSection === "alle" ? Number.POSITIVE_INFINITY : Number(rowsPerSection);
@@ -3311,242 +3041,19 @@ function StrafenApp() {
   const entriesWithPoints = filteredEntries.filter((entry) => entry.points > 0).length;
   const highestFine = filteredEntries.reduce((max, entry) => Math.max(max, entry.fine), 0);
 
-  const selectedLaw = useMemo(
-    () => strafgesetzRecords.find((law) => law.id === selectedLawId) ?? null,
-    [selectedLawId, strafgesetzRecords],
-  );
-
-  const selectedLawEntries = useMemo(() => {
-    const term = normalizeSearchValue(managementSearch);
-    return strafkatalogRecords
-      .filter((entry) => entry.lawId === selectedLawId)
-      .filter((entry) => {
-        if (!term) return true;
-        return `${entry.paragraph} ${entry.title} ${entry.notes}`.toLowerCase().includes(term);
-      })
-      .sort((a, b) => {
-        const numericA = Number(a.paragraph);
-        const numericB = Number(b.paragraph);
-        if (!Number.isNaN(numericA) && !Number.isNaN(numericB) && numericA !== numericB) {
-          return numericA - numericB;
-        }
-        return a.paragraph.localeCompare(b.paragraph, "de") || a.title.localeCompare(b.title, "de");
-      });
-  }, [managementSearch, selectedLawId, strafkatalogRecords]);
-
-  const offensesInUse = useMemo(() => {
-    const ids = new Set<string>();
-    strafanzeigenRecords.forEach((record) => record.offenseIds.forEach((id) => ids.add(id)));
-    return ids;
-  }, [strafanzeigenRecords]);
-
-  function resetLawForm() {
-    setLawEditorOpen(false);
-    setEditingLawId(null);
-    setLawForm({ label: "", accent: "rose" });
-  }
-
-  function startCreateLaw() {
-    setCatalogInfo("");
-    setLawEditorOpen(true);
-    setEditingLawId(null);
-    setLawForm({ label: "", accent: "rose" });
-  }
-
-  function startEditLaw(law: StrafgesetzRecord) {
-    setCatalogInfo("");
-    setLawEditorOpen(true);
-    setEditingLawId(law.id);
-    setLawForm({ label: law.label, accent: law.accent });
-  }
-
-  function saveLaw() {
-    const nextLabel = lawForm.label.trim();
-    if (!nextLabel) {
-      setCatalogInfo("Bitte gib dem Gesetzbuch einen Namen.");
-      return;
-    }
-
-    if (editingLawId) {
-      setStrafgesetzRecords((prev) =>
-        prev.map((law) => (law.id === editingLawId ? { ...law, label: nextLabel, accent: lawForm.accent } : law)),
-      );
-      setCatalogInfo("Gesetzbuch wurde aktualisiert.");
-      resetLawForm();
-      return;
-    }
-
-    const baseId = createStrafgesetzRecordId(nextLabel);
-    let nextId = baseId;
-    let suffix = 2;
-    while (strafgesetzRecords.some((law) => law.id === nextId)) {
-      nextId = `${baseId}-${suffix}`;
-      suffix += 1;
-    }
-
-    const nextLaw: StrafgesetzRecord = {
-      id: nextId,
-      label: nextLabel,
-      accent: lawForm.accent,
-    };
-
-    setStrafgesetzRecords((prev) => [...prev, nextLaw]);
-    setSelectedLawId(nextLaw.id);
-    setCatalogInfo("Gesetzbuch wurde angelegt.");
-    resetLawForm();
-  }
-
-  function deleteLaw(lawId: string) {
-    const linkedOffenseIds = strafkatalogRecords.filter((entry) => entry.lawId === lawId).map((entry) => entry.id);
-    if (linkedOffenseIds.some((id) => offensesInUse.has(id))) {
-      setCatalogInfo("Dieses Gesetzbuch wird bereits in Strafanzeigen verwendet und kann aktuell nicht gelöscht werden.");
-      return;
-    }
-
-    setStrafgesetzRecords((prev) => prev.filter((law) => law.id !== lawId));
-    setStrafkatalogRecords((prev) => prev.filter((entry) => entry.lawId !== lawId));
-    setCatalogInfo("Gesetzbuch wurde entfernt.");
-    if (selectedLawId === lawId) {
-      const nextLaw = strafgesetzRecords.find((law) => law.id !== lawId) ?? null;
-      setSelectedLawId(nextLaw?.id ?? "");
-    }
-  }
-
-  function resetEntryForm() {
-    setEntryEditorOpen(false);
-    setEditingEntryId(null);
-    setEntryForm({
-      lawId: selectedLawId || strafgesetzRecords[0]?.id || "",
-      paragraph: "",
-      title: "",
-      fine: "",
-      he: "",
-      points: "",
-      notes: "",
-    });
-  }
-
-  function startCreateEntry() {
-    setCatalogInfo("");
-    setEntryEditorOpen(true);
-    setEditingEntryId(null);
-    setEntryForm({
-      lawId: selectedLawId || strafgesetzRecords[0]?.id || "",
-      paragraph: "",
-      title: "",
-      fine: "",
-      he: "",
-      points: "",
-      notes: "",
-    });
-  }
-
-  function startEditEntry(entry: StrafkatalogEintrag) {
-    setCatalogInfo("");
-    setEntryEditorOpen(true);
-    setEditingEntryId(entry.id);
-    setEntryForm({
-      lawId: entry.lawId,
-      paragraph: entry.paragraph,
-      title: entry.title,
-      fine: String(entry.fine),
-      he: String(entry.he),
-      points: String(entry.points),
-      notes: entry.notes === "—" ? "" : entry.notes,
-    });
-  }
-
-  function saveEntry() {
-    const nextLawId = entryForm.lawId;
-    const nextParagraph = entryForm.paragraph.trim();
-    const nextTitle = entryForm.title.trim();
-    if (!nextLawId || !nextParagraph || !nextTitle) {
-      setCatalogInfo("Bitte Gesetzbuch, Paragraph und Titel vollständig angeben.");
-      return;
-    }
-
-    const nextFine = Math.max(0, Number(entryForm.fine) || 0);
-    const nextHe = Math.max(0, Number(entryForm.he) || 0);
-    const nextPoints = Math.max(0, Number(entryForm.points) || 0);
-    const nextNotes = entryForm.notes.trim() || "—";
-
-    if (editingEntryId) {
-      setStrafkatalogRecords((prev) =>
-        prev.map((entry) =>
-          entry.id === editingEntryId
-            ? {
-                ...entry,
-                lawId: nextLawId,
-                paragraph: nextParagraph,
-                title: nextTitle,
-                fine: nextFine,
-                he: nextHe,
-                points: nextPoints,
-                notes: nextNotes,
-              }
-            : entry,
-        ),
-      );
-      setSelectedLawId(nextLawId);
-      setCatalogInfo("Paragraph wurde aktualisiert.");
-      resetEntryForm();
-      return;
-    }
-
-    const baseId = createStrafkatalogRecordId(nextLawId, nextParagraph, nextTitle);
-    let nextId = baseId;
-    let suffix = 2;
-    while (strafkatalogRecords.some((entry) => entry.id === nextId)) {
-      nextId = `${baseId}-${suffix}`;
-      suffix += 1;
-    }
-
-    const nextEntry: StrafkatalogEintrag = {
-      id: nextId,
-      lawId: nextLawId,
-      paragraph: nextParagraph,
-      title: nextTitle,
-      fine: nextFine,
-      he: nextHe,
-      points: nextPoints,
-      notes: nextNotes,
-    };
-
-    setStrafkatalogRecords((prev) => [...prev, nextEntry]);
-    setSelectedLawId(nextLawId);
-    setCatalogInfo("Paragraph wurde angelegt.");
-    resetEntryForm();
-  }
-
-  function deleteEntry(entryId: string) {
-    if (offensesInUse.has(entryId)) {
-      setCatalogInfo("Dieser Paragraph wird bereits in Strafanzeigen verwendet und kann aktuell nicht gelöscht werden.");
-      return;
-    }
-
-    setStrafkatalogRecords((prev) => prev.filter((entry) => entry.id !== entryId));
-    setCatalogInfo("Paragraph wurde entfernt.");
-  }
-
   return (
     <AppShell
       breadcrumb="Hammer Modding CopLink / Strafen"
       title="Strafkatalog"
       actions={
-        <div className="flex flex-wrap items-center gap-2">
-          <UiButton variant={viewMode === "catalog" ? "red" : "ghost"} onClick={() => setViewMode("catalog")}>Katalogansicht</UiButton>
-          <UiButton variant={viewMode === "master" ? "blue" : "ghost"} onClick={() => setViewMode("master")}>Masterverwaltung</UiButton>
-          <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-right text-xs text-red-100/80">
-            <div className="uppercase tracking-[0.28em] text-red-200/50">Catalog Sync</div>
-            <div className="mt-1 font-semibold text-red-100">{strafkatalogRecords.length} Delikte · {strafgesetzRecords.length} Gesetzbücher</div>
-          </div>
+        <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-right text-xs text-red-100/80">
+          <div className="uppercase tracking-[0.28em] text-red-200/50">Catalog Sync</div>
+          <div className="mt-1 font-semibold text-red-100">{STRAFKATALOG.length} Delikte geladen</div>
         </div>
       }
     >
       <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-5 py-4 text-sm text-amber-100">
-        {viewMode === "catalog"
-          ? "Der aktuelle Strafkatalog ist die aktive Datenbasis für Strafanzeigen. Änderungen aus der Masterverwaltung wirken direkt in die Deliktauswahl hinein."
-          : "Hier entsteht die erste echte Master-/Adminfläche von CopLink. Gesetzbücher und Paragraphen werden kundenseitig gepflegt, die Systemlogik bleibt dabei unverändert."}
+        Dieser Strafkatalog ist jetzt als CopLink-Datenbasis hinterlegt und kann im nächsten Modul direkt für Strafanzeigen verwendet werden.
       </div>
 
       <div className="mt-5 grid gap-4 lg:grid-cols-4">
@@ -3556,262 +3063,94 @@ function StrafenApp() {
         <InfoCard label="Höchste Geldstrafe" value={formatEuroValue(highestFine)} />
       </div>
 
-      {viewMode === "catalog" ? (
-        <>
-          <div className="mt-5 grid gap-4 xl:grid-cols-[1.2fr_240px_220px]">
-            <FancyInput
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Nach Paragraph, Delikt oder Hinweis suchen..."
-              className="ui-input"
-            />
-            <FancySelect value={lawFilter} onChange={(value) => setLawFilter(value as "alle" | StrafgesetzId)} options={lawFilterOptions} />
-            <FancySelect
-              value={rowsPerSection}
-              onChange={setRowsPerSection}
-              options={[
-                { value: "10", label: "10 Einträge je Block" },
-                { value: "25", label: "25 Einträge je Block" },
-                { value: "50", label: "50 Einträge je Block" },
-                { value: "alle", label: "Alle Einträge" },
-              ]}
-            />
-          </div>
+      <div className="mt-5 grid gap-4 xl:grid-cols-[1.2fr_240px_220px]">
+        <FancyInput
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Nach Paragraph, Delikt oder Hinweis suchen..."
+          className="ui-input"
+        />
+        <FancySelect
+          value={lawFilter}
+          onChange={(value) => setLawFilter(value as "alle" | StrafgesetzId)}
+          options={[{ value: "alle", label: "Alle Gesetzbücher" }, ...STRAFGESETZE.map((law) => ({ value: law.id, label: law.label }))]}
+        />
+        <FancySelect
+          value={rowsPerSection}
+          onChange={setRowsPerSection}
+          options={[
+            { value: "10", label: "10 Einträge je Block" },
+            { value: "25", label: "25 Einträge je Block" },
+            { value: "50", label: "50 Einträge je Block" },
+            { value: "alle", label: "Alle Einträge" },
+          ]}
+        />
+      </div>
 
-          <div className="mt-5 space-y-4">
-            {groupedEntries.length ? (
-              groupedEntries.map((law) => {
-                const isOpen = openSections[law.id];
-                const visibleEntries = law.entries.slice(0, rowsLimit);
-                const lawShort = law.label.split("–")[0]?.trim() || law.label;
+      <div className="mt-5 space-y-4">
+        {groupedEntries.length ? (
+          groupedEntries.map((law) => {
+            const isOpen = openSections[law.id];
+            const visibleEntries = law.entries.slice(0, rowsLimit);
 
-                return (
-                  <div key={law.id} className="overflow-hidden rounded-2xl border border-white/8 bg-black/15">
-                    <button
-                      type="button"
-                      onClick={() => setOpenSections((current) => ({ ...current, [law.id]: !current[law.id] }))}
-                      className="flex w-full items-center justify-between gap-4 border-b border-white/8 px-5 py-4 text-left transition hover:bg-white/[0.04]"
-                    >
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-3">
-                          <span className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${getStrafgesetzAccentClass(law.accent)}`}>
-                            {lawShort}
-                          </span>
-                          <p className="text-lg font-semibold text-white">{law.label}</p>
-                        </div>
-                        <p className="mt-2 text-xs uppercase tracking-[0.24em] text-white/40">{law.entries.length} Treffer in diesem Gesetzbuch</p>
-                      </div>
-                      <span className={`text-xl text-white/50 transition ${isOpen ? "rotate-180" : ""}`}>⌃</span>
-                    </button>
+            return (
+              <div key={law.id} className="overflow-hidden rounded-2xl border border-white/8 bg-black/15">
+                <button
+                  type="button"
+                  onClick={() => setOpenSections((current) => ({ ...current, [law.id]: !current[law.id] }))}
+                  className="flex w-full items-center justify-between gap-4 border-b border-white/8 px-5 py-4 text-left transition hover:bg-white/[0.04]"
+                >
+                  <div>
+                    <p className="text-lg font-semibold text-white">{law.label}</p>
+                    <p className="mt-1 text-xs uppercase tracking-[0.24em] text-white/40">{law.entries.length} Treffer in diesem Gesetzbuch</p>
+                  </div>
+                  <span className={`text-xl text-white/50 transition ${isOpen ? "rotate-180" : ""}`}>⌃</span>
+                </button>
 
-                    {isOpen ? (
-                      <div className="window-scrollbar overflow-auto">
-                        <table className="min-w-full text-left text-sm">
-                          <thead className="bg-white/[0.05] text-white/55">
-                            <tr>
-                              <th className="px-4 py-4 font-medium">§</th>
-                              <th className="px-4 py-4 font-medium">Straftat</th>
-                              <th className="px-4 py-4 font-medium">Bußgeld</th>
-                              <th className="px-4 py-4 font-medium">Hafteinheiten</th>
-                              <th className="px-4 py-4 font-medium">Punkte</th>
-                              <th className="px-4 py-4 font-medium">Sonstiges</th>
-                            </tr>
-                          </thead>
-                          <tbody className="bg-black/15 text-white/90">
-                            {visibleEntries.map((entry) => (
-                              <tr key={entry.id} className="border-t border-white/6 align-top">
-                                <td className="px-4 py-4 font-semibold text-red-100">§ {entry.paragraph}</td>
-                                <td className="px-4 py-4">
-                                  <div className="font-medium text-white">{entry.title}</div>
-                                </td>
-                                <td className="px-4 py-4">{formatEuroValue(entry.fine)}</td>
-                                <td className="px-4 py-4">{formatHeValue(entry.he)}</td>
-                                <td className="px-4 py-4">{formatPointsValue(entry.points)}</td>
-                                <td className="px-4 py-4 text-white/60">{entry.notes}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                        {Number.isFinite(rowsLimit) && law.entries.length > rowsLimit ? (
-                          <div className="border-t border-white/8 px-5 py-3 text-xs uppercase tracking-[0.22em] text-white/40">
-                            {rowsLimit} von {law.entries.length} Einträgen sichtbar
-                          </div>
-                        ) : null}
+                {isOpen ? (
+                  <div className="window-scrollbar overflow-auto">
+                    <table className="min-w-full text-left text-sm">
+                      <thead className="bg-white/[0.05] text-white/55">
+                        <tr>
+                          <th className="px-4 py-4 font-medium">§</th>
+                          <th className="px-4 py-4 font-medium">Straftat</th>
+                          <th className="px-4 py-4 font-medium">Bußgeld</th>
+                          <th className="px-4 py-4 font-medium">Hafteinheiten</th>
+                          <th className="px-4 py-4 font-medium">Punkte</th>
+                          <th className="px-4 py-4 font-medium">Sonstiges</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-black/15 text-white/90">
+                        {visibleEntries.map((entry) => (
+                          <tr key={entry.id} className="border-t border-white/6 align-top">
+                            <td className="px-4 py-4 font-semibold text-red-100">§ {entry.paragraph}</td>
+                            <td className="px-4 py-4">
+                              <div className="font-medium text-white">{entry.title}</div>
+                            </td>
+                            <td className="px-4 py-4">{formatEuroValue(entry.fine)}</td>
+                            <td className="px-4 py-4">{formatHeValue(entry.he)}</td>
+                            <td className="px-4 py-4">{formatPointsValue(entry.points)}</td>
+                            <td className="px-4 py-4 text-white/60">{entry.notes}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {Number.isFinite(rowsLimit) && law.entries.length > rowsLimit ? (
+                      <div className="border-t border-white/8 px-5 py-3 text-xs uppercase tracking-[0.22em] text-white/40">
+                        {rowsLimit} von {law.entries.length} Einträgen sichtbar
                       </div>
                     ) : null}
                   </div>
-                );
-              })
-            ) : (
-              <div className="rounded-2xl border border-white/8 bg-black/15 px-5 py-10 text-center text-sm text-white/55">
-                Keine Treffer für deine aktuelle Suche.
+                ) : null}
               </div>
-            )}
+            );
+          })
+        ) : (
+          <div className="rounded-2xl border border-white/8 bg-black/15 px-5 py-10 text-center text-sm text-white/55">
+            Keine Treffer für deine aktuelle Suche.
           </div>
-        </>
-      ) : (
-        <div className="mt-5 grid gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
-          <div className="space-y-4">
-            <div className="rounded-[28px] border border-white/8 bg-[#0c0f15] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.24)]">
-              <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.28em] text-red-200/55">Masterbereich</p>
-                  <h3 className="mt-2 text-2xl font-bold text-white">Gesetzbücher</h3>
-                </div>
-                <UiButton variant="green" onClick={startCreateLaw}>Gesetzbuch hinzufügen</UiButton>
-              </div>
-
-              {lawEditorOpen ? (
-                <div className="mb-4 rounded-3xl border border-white/8 bg-black/20 p-4">
-                  <div className="mb-4 flex items-center justify-between gap-3">
-                    <h4 className="text-lg font-bold text-white">{editingLawId ? "Gesetzbuch bearbeiten" : "Neues Gesetzbuch"}</h4>
-                    <UiButton variant="ghost" onClick={resetLawForm}>Abbrechen</UiButton>
-                  </div>
-                  <div className="space-y-4">
-                    <FieldBlock label="Bezeichnung des Gesetzbuchs">
-                      <FancyInput value={lawForm.label} onChange={(event) => setLawForm((current) => ({ ...current, label: event.target.value }))} placeholder="z. B. StGB – Strafgesetzbuch" />
-                    </FieldBlock>
-                    <FieldBlock label="Akzentfarbe">
-                      <FancySelect
-                        value={lawForm.accent}
-                        onChange={(value) => setLawForm((current) => ({ ...current, accent: value }))}
-                        options={STRAFKATALOG_ACCENT_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
-                      />
-                    </FieldBlock>
-                    <UiButton variant="green" onClick={saveLaw}>{editingLawId ? "Gesetzbuch speichern" : "Gesetzbuch anlegen"}</UiButton>
-                  </div>
-                </div>
-              ) : null}
-
-              <div className="space-y-3">
-                {strafgesetzRecords.map((law) => {
-                  const isSelected = law.id === selectedLawId;
-                  const lawEntryCount = strafkatalogRecords.filter((entry) => entry.lawId === law.id).length;
-                  return (
-                    <button
-                      key={law.id}
-                      type="button"
-                      onClick={() => setSelectedLawId(law.id)}
-                      className={`w-full rounded-3xl border p-4 text-left transition ${isSelected ? "border-red-500/35 bg-red-500/[0.08]" : "border-white/8 bg-black/15 hover:border-white/15 hover:bg-white/[0.03]"}`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${getStrafgesetzAccentClass(law.accent)}`}>
-                              {law.label.split("–")[0]?.trim() || law.label}
-                            </span>
-                            <p className="text-base font-semibold text-white">{law.label}</p>
-                          </div>
-                          <p className="mt-2 text-xs uppercase tracking-[0.22em] text-white/40">{lawEntryCount} Paragraphen</p>
-                        </div>
-                        <div className="flex shrink-0 gap-2">
-                          <UiButton variant="blue" className="px-3 py-2 text-[11px]" onClick={(event) => { event.stopPropagation(); startEditLaw(law); }}>Bearbeiten</UiButton>
-                          <UiButton variant="red-alt" className="px-3 py-2 text-[11px]" onClick={(event) => { event.stopPropagation(); deleteLaw(law.id); }}>Löschen</UiButton>
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <div className="rounded-[28px] border border-white/8 bg-[#0c0f15] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.24)]">
-              <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.28em] text-red-200/55">Paragraphenverwaltung</p>
-                  <h3 className="mt-2 text-2xl font-bold text-white">{selectedLaw?.label ?? "Kein Gesetzbuch ausgewählt"}</h3>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <FancyInput value={managementSearch} onChange={(event) => setManagementSearch(event.target.value)} placeholder="Paragraphen filtern..." className="w-[220px]" />
-                  <UiButton variant="green" onClick={startCreateEntry} disabled={!selectedLaw}>Paragraph hinzufügen</UiButton>
-                </div>
-              </div>
-
-              {entryEditorOpen ? (
-                <div className="mb-5 rounded-3xl border border-white/8 bg-black/20 p-4">
-                  <div className="mb-4 flex items-center justify-between gap-3">
-                    <h4 className="text-lg font-bold text-white">{editingEntryId ? "Paragraph bearbeiten" : "Neuer Paragraph"}</h4>
-                    <UiButton variant="ghost" onClick={resetEntryForm}>Abbrechen</UiButton>
-                  </div>
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                    <FieldBlock label="Gesetzbuch">
-                      <FancySelect value={entryForm.lawId} onChange={(value) => setEntryForm((current) => ({ ...current, lawId: value }))} options={strafgesetzRecords.map((law) => ({ value: law.id, label: law.label }))} />
-                    </FieldBlock>
-                    <FieldBlock label="Paragraph / Nummer">
-                      <FancyInput value={entryForm.paragraph} onChange={(event) => setEntryForm((current) => ({ ...current, paragraph: event.target.value }))} placeholder="z. B. 101" />
-                    </FieldBlock>
-                    <FieldBlock label="Titel">
-                      <FancyInput value={entryForm.title} onChange={(event) => setEntryForm((current) => ({ ...current, title: event.target.value }))} placeholder="z. B. Mord" />
-                    </FieldBlock>
-                    <FieldBlock label="Bußgeld">
-                      <FancyInput type="number" min="0" value={entryForm.fine} onChange={(event) => setEntryForm((current) => ({ ...current, fine: event.target.value }))} placeholder="0" />
-                    </FieldBlock>
-                    <FieldBlock label="Hafteinheiten">
-                      <FancyInput type="number" min="0" value={entryForm.he} onChange={(event) => setEntryForm((current) => ({ ...current, he: event.target.value }))} placeholder="0" />
-                    </FieldBlock>
-                    <FieldBlock label="Punkte">
-                      <FancyInput type="number" min="0" value={entryForm.points} onChange={(event) => setEntryForm((current) => ({ ...current, points: event.target.value }))} placeholder="0" />
-                    </FieldBlock>
-                    <FieldBlock label="Hinweis / Sonstiges" className="md:col-span-2 xl:col-span-3">
-                      <FancyTextarea rows={4} value={entryForm.notes} onChange={(event) => setEntryForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Optionaler Zusatzhinweis ..." />
-                    </FieldBlock>
-                  </div>
-                  <ActionBar className="mt-4">
-                    <UiButton variant="green" onClick={saveEntry}>{editingEntryId ? "Paragraph speichern" : "Paragraph anlegen"}</UiButton>
-                  </ActionBar>
-                </div>
-              ) : null}
-
-              {catalogInfo ? (
-                <div className="mb-5 rounded-2xl border border-cyan-400/20 bg-cyan-500/10 px-4 py-3 text-sm text-cyan-100">{catalogInfo}</div>
-              ) : null}
-
-              {selectedLaw ? (
-                selectedLawEntries.length ? (
-                  <div className="space-y-3">
-                    {selectedLawEntries.map((entry) => {
-                      const isLinked = offensesInUse.has(entry.id);
-                      return (
-                        <div key={entry.id} className="rounded-3xl border border-white/8 bg-black/15 p-4">
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div>
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-sm font-semibold text-red-100">§ {entry.paragraph}</span>
-                                <span className="text-base font-semibold text-white">{entry.title}</span>
-                                {isLinked ? <StatusBadge text="In Strafanzeigen genutzt" tone="yellow" /> : null}
-                              </div>
-                              <p className="mt-2 text-sm text-white/55">{entry.notes}</p>
-                              <div className="mt-3 flex flex-wrap gap-2 text-xs text-white/55">
-                                <StatusBadge text={formatEuroValue(entry.fine)} tone="neutral" />
-                                <StatusBadge text={formatHeValue(entry.he)} tone="neutral" />
-                                <StatusBadge text={formatPointsValue(entry.points)} tone="neutral" />
-                              </div>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                              <UiButton variant="blue" className="px-3 py-2 text-[11px]" onClick={() => startEditEntry(entry)}>Bearbeiten</UiButton>
-                              <UiButton variant="red-alt" className="px-3 py-2 text-[11px]" onClick={() => deleteEntry(entry.id)}>Löschen</UiButton>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="rounded-3xl border border-dashed border-white/10 bg-black/25 p-8 text-sm text-white/55">
-                    In diesem Gesetzbuch sind aktuell noch keine Paragraphen angelegt.
-                  </div>
-                )
-              ) : (
-                <div className="rounded-3xl border border-dashed border-white/10 bg-black/25 p-8 text-sm text-white/55">
-                  Wähle links zuerst ein Gesetzbuch aus oder lege ein neues an.
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+        )}
+      </div>
     </AppShell>
   );
 }
@@ -3819,7 +3158,7 @@ function StrafenApp() {
 
 
 function StrafanzeigenApp() {
-  const { aktenRecords, setAktenRecords, strafanzeigenRecords, setStrafanzeigenRecords, weaponRecords, setWeaponRecords, asservatenItems, setAsservatenItems, asservatenSchraenke, strafgesetzRecords, strafkatalogRecords } = useContext(RecordsContext);
+  const { aktenRecords, setAktenRecords, strafanzeigenRecords, setStrafanzeigenRecords, weaponRecords, setWeaponRecords, asservatenItems, setAsservatenItems, asservatenSchraenke } = useContext(RecordsContext);
   const [viewMode, setViewMode] = useState<"overview" | "viewer" | "editor">("overview");
   const [selectedOffenseIds, setSelectedOffenseIds] = useState<string[]>([]);
   const [selectedAsservatIds, setSelectedAsservatIds] = useState<string[]>([]);
@@ -3882,12 +3221,12 @@ function StrafanzeigenApp() {
     [],
   );
 
-  const lawOrder = useMemo(() => new Map(strafgesetzRecords.map((law, index) => [law.id, index])), [strafgesetzRecords]);
+  const lawOrder = useMemo(() => new Map(STRAFGESETZE.map((law, index) => [law.id, index])), []);
 
   const filteredCatalog = useMemo(() => {
     const term = normalizeSearchValue(search);
 
-    return strafkatalogRecords
+    return STRAFKATALOG
       .filter((entry) => {
         if (selectedOffenseIds.includes(entry.id)) return false;
         const lawMatch = lawFilter === "alle" ? true : entry.lawId === lawFilter;
@@ -3901,7 +3240,7 @@ function StrafanzeigenApp() {
         if (!Number.isNaN(paragraphDiff) && paragraphDiff !== 0) return paragraphDiff;
         return a.title.localeCompare(b.title, "de");
       });
-  }, [lawFilter, lawOrder, search, selectedOffenseIds, strafkatalogRecords]);
+  }, [lawFilter, lawOrder, search, selectedOffenseIds]);
 
   const filteredAsservaten = useMemo(() => {
     const term = normalizeSearchValue(asservatSearch);
@@ -3991,14 +3330,14 @@ function StrafanzeigenApp() {
   }, [weaponRecords]);
 
   const liveTotals = useMemo(
-    () => calculateStrafSummen(selectedOffenseIds, { confession: form.confession, repeatOffender: form.repeatOffender }, strafkatalogRecords),
+    () => calculateStrafSummen(selectedOffenseIds, { confession: form.confession, repeatOffender: form.repeatOffender }),
     [form.confession, form.repeatOffender, selectedOffenseIds],
   );
 
-  const selectedOffenses = useMemo(() => getOffensesByIds(selectedOffenseIds, strafkatalogRecords), [selectedOffenseIds, strafkatalogRecords]);
+  const selectedOffenses = useMemo(() => getOffensesByIds(selectedOffenseIds), [selectedOffenseIds]);
 
-  const selectedRecordTotals = selectedRecord ? calculateStrafSummen(selectedRecord.offenseIds, selectedRecord.modifiers, strafkatalogRecords) : null;
-  const selectedRecordOffenses = selectedRecord ? getOffensesByIds(selectedRecord.offenseIds, strafkatalogRecords) : [];
+  const selectedRecordTotals = selectedRecord ? calculateStrafSummen(selectedRecord.offenseIds, selectedRecord.modifiers) : null;
+  const selectedRecordOffenses = selectedRecord ? getOffensesByIds(selectedRecord.offenseIds) : [];
   const selectedRecordAsservaten = selectedRecord
     ? selectedRecord.asservatenIds.map((id) => ASSERVAT_OPTIONS.find((entry) => entry.id === id)).filter(Boolean)
     : [];
@@ -4034,7 +3373,7 @@ function StrafanzeigenApp() {
   }, [asservatenSchraenke]);
 
   const recordStats = useMemo(() => {
-    const withHe = strafanzeigenRecords.filter((record) => calculateStrafSummen(record.offenseIds, record.modifiers, strafkatalogRecords).he > 0).length;
+    const withHe = strafanzeigenRecords.filter((record) => calculateStrafSummen(record.offenseIds, record.modifiers).he > 0).length;
     return {
       total: strafanzeigenRecords.length,
       erstellt: strafanzeigenRecords.filter((record) => record.status === "Erstellt").length,
@@ -4139,9 +3478,9 @@ function StrafanzeigenApp() {
   }
 
   function syncAnzeigeToAkten(records: AktenRecord[], sourceRecord: StrafanzeigeRecord, updatedAt: string): AktenRecord[] {
-    const summary = calculateStrafSummen(sourceRecord.offenseIds, sourceRecord.modifiers, strafkatalogRecords);
+    const summary = calculateStrafSummen(sourceRecord.offenseIds, sourceRecord.modifiers);
     const sentence = `${formatEuroValue(summary.fine)} | ${formatHeValue(summary.he)}`;
-    const titles = getOffensesByIds(sourceRecord.offenseIds, strafkatalogRecords).map((entry) => `§ ${entry.paragraph} ${entry.title}`).join(", ");
+    const titles = getOffensesByIds(sourceRecord.offenseIds).map((entry) => `§ ${entry.paragraph} ${entry.title}`).join(", ");
 
     return records.map((record): AktenRecord => {
       if (record.kind !== "personenakte" || !record.person) return record;
@@ -4333,7 +3672,7 @@ function StrafanzeigenApp() {
       <div className="mt-4 space-y-3">
         {visibleRecords.length ? (
           visibleRecords.map((record) => {
-            const totals = calculateStrafSummen(record.offenseIds, record.modifiers, strafkatalogRecords);
+            const totals = calculateStrafSummen(record.offenseIds, record.modifiers);
             return (
               <button
                 key={record.id}
@@ -4717,7 +4056,7 @@ function StrafanzeigenApp() {
           <SectionTitle title="Straftaten auswählen" />
           <div className="grid gap-4 xl:grid-cols-[1fr_250px]">
             <FancyInput value={search} onChange={(event) => setSearch(event.target.value)} className="ui-input" placeholder="Paragraph oder Delikt suchen..." />
-            <FancySelect value={lawFilter} onChange={(value) => setLawFilter(value as "alle" | StrafgesetzId)} options={[{ value: "alle", label: "Alle Gesetzbücher" }, ...strafgesetzRecords.map((law) => ({ value: law.id, label: law.label }))]} />
+            <FancySelect value={lawFilter} onChange={(value) => setLawFilter(value as "alle" | StrafgesetzId)} options={[{ value: "alle", label: "Alle Gesetzbücher" }, ...STRAFGESETZE.map((law) => ({ value: law.id, label: law.label }))]} />
           </div>
 
           <div className="mt-4 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
@@ -5275,7 +4614,7 @@ function LeitstelleApp() {
         </div>
       ) : null}
 
-      <div className="xl:grid xl:grid-cols-[minmax(0,1.6fr)_320px] xl:items-start xl:gap-4">
+      <div className="xl:grid xl:grid-cols-[minmax(0,1.6fr)_320px] xl:gap-4">
         <div className="rounded-[28px] border border-white/8 bg-[#0b1017]/90 p-4 shadow-[0_20px_65px_rgba(0,0,0,0.35)]">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -5344,9 +4683,9 @@ function LeitstelleApp() {
           </div>
         </div>
 
-        <div className="mt-4 self-start rounded-[28px] border border-white/8 bg-[#0d1119] p-4 shadow-[0_20px_50px_rgba(0,0,0,0.3)] xl:mt-0 xl:flex xl:max-h-[428px] xl:flex-col">
+        <div className="mt-4 rounded-[28px] border border-white/8 bg-[#0d1119] p-4 shadow-[0_20px_50px_rgba(0,0,0,0.3)] xl:mt-0 xl:flex xl:h-full xl:flex-col">
           <h3 className="text-xl font-bold text-white">Statuskatalog</h3>
-          <div className="mt-4 space-y-2 overflow-y-auto pr-1 window-scrollbar xl:min-h-0 xl:max-h-[352px] xl:flex-1">
+          <div className="mt-4 space-y-2 overflow-y-auto pr-1 window-scrollbar xl:min-h-0 xl:flex-1">
             {sortedStatuses.map((status) => (
               <div key={status.id} className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3">
                 <div className="flex items-center justify-between gap-3">
@@ -6081,1050 +5420,6 @@ function StempeluhrApp() {
 }
 
 
-function AusbildungenApp() {
-  const { ausbildungRecords, setAusbildungRecords, officerRecords, aktenRecords } = useContext(RecordsContext);
-  const [selectedAusbildungId, setSelectedAusbildungId] = useState<string | null>(null);
-  const [showForm, setShowForm] = useState(false);
-  const [editingAusbildungId, setEditingAusbildungId] = useState<string | null>(null);
-  const [requestOfficerId, setRequestOfficerId] = useState<string>("");
-  const [instructorDrafts, setInstructorDrafts] = useState<Record<string, string>>({});
-  const [feedbackDrafts, setFeedbackDrafts] = useState<Record<string, string>>({});
-  const [form, setForm] = useState({
-    title: "",
-    code: "",
-    content: "",
-    scheduledDate: "",
-    allowSelfSignup: true,
-    minimumRank: AUSBILDUNG_RANK_OPTIONS[AUSBILDUNG_RANK_OPTIONS.length - 1] as AusbildungRank,
-  });
-
-  const officerDirectory = useMemo(
-    () => buildOfficerDirectory(officerRecords, aktenRecords),
-    [aktenRecords, officerRecords]
-  );
-
-  const officerOptions = useMemo(
-    () =>
-      officerDirectory.map((entry) => ({
-        value: entry.officer.id,
-        label: `${entry.name} · ${entry.dienstnummer}`,
-      })),
-    [officerDirectory]
-  );
-
-  useEffect(() => {
-    if (!ausbildungRecords.length) {
-      if (selectedAusbildungId) setSelectedAusbildungId(null);
-      return;
-    }
-
-    if (!selectedAusbildungId || !ausbildungRecords.some((record) => record.id === selectedAusbildungId)) {
-      setSelectedAusbildungId(ausbildungRecords[0]?.id ?? null);
-    }
-  }, [ausbildungRecords, selectedAusbildungId]);
-
-  useEffect(() => {
-    if (!officerOptions.length) {
-      if (requestOfficerId) setRequestOfficerId("");
-      return;
-    }
-
-    if (!requestOfficerId || !officerOptions.some((option) => option.value === requestOfficerId)) {
-      setRequestOfficerId(officerOptions[0]?.value ?? "");
-    }
-  }, [officerOptions, requestOfficerId]);
-
-  const selectedAusbildung = useMemo(
-    () => ausbildungRecords.find((record) => record.id === selectedAusbildungId) ?? ausbildungRecords[0] ?? null,
-    [ausbildungRecords, selectedAusbildungId]
-  );
-
-  const selectedRequestOfficer = useMemo(
-    () => officerDirectory.find((entry) => entry.officer.id === requestOfficerId) ?? null,
-    [officerDirectory, requestOfficerId]
-  );
-
-  const selectedOfficerRequest = useMemo(() => {
-    if (!selectedAusbildung || !requestOfficerId) return null;
-    return selectedAusbildung.requests.find((request) => request.officerId === requestOfficerId) ?? null;
-  }, [selectedAusbildung, requestOfficerId]);
-
-  function resetForm() {
-    setForm({
-      title: "",
-      code: "",
-      content: "",
-      scheduledDate: "",
-      allowSelfSignup: true,
-      minimumRank: AUSBILDUNG_RANK_OPTIONS[AUSBILDUNG_RANK_OPTIONS.length - 1] as AusbildungRank,
-    });
-    setEditingAusbildungId(null);
-    setShowForm(false);
-  }
-
-  function startCreate() {
-    setEditingAusbildungId(null);
-    setForm({
-      title: "",
-      code: "",
-      content: "",
-      scheduledDate: "",
-      allowSelfSignup: true,
-      minimumRank: AUSBILDUNG_RANK_OPTIONS[AUSBILDUNG_RANK_OPTIONS.length - 1] as AusbildungRank,
-    });
-    setShowForm(true);
-  }
-
-  function startEdit(record: AusbildungRecord) {
-    setEditingAusbildungId(record.id);
-    setForm({
-      title: record.title,
-      code: record.code,
-      content: record.content,
-      scheduledDate: record.scheduledDate,
-      allowSelfSignup: record.allowSelfSignup,
-      minimumRank: record.minimumRank,
-    });
-    setSelectedAusbildungId(record.id);
-    setShowForm(true);
-  }
-
-  function saveAusbildung() {
-    const title = form.title.trim();
-    const code = form.code.trim().toUpperCase();
-    const content = form.content.trim();
-    const scheduledDate = form.scheduledDate;
-
-    if (!title || !code || !content || !scheduledDate) return;
-
-    const timestamp = formatDateTimeStamp(new Date());
-
-    if (editingAusbildungId) {
-      setAusbildungRecords((prev) =>
-        prev.map((record) =>
-          record.id === editingAusbildungId
-            ? {
-                ...record,
-                title,
-                code,
-                content,
-                scheduledDate,
-                allowSelfSignup: form.allowSelfSignup,
-                minimumRank: form.minimumRank,
-              }
-            : record
-        )
-      );
-      setSelectedAusbildungId(editingAusbildungId);
-    } else {
-      const newRecord: AusbildungRecord = {
-        id: `ausb-${Date.now()}`,
-        title,
-        code,
-        content,
-        scheduledDate,
-        allowSelfSignup: form.allowSelfSignup,
-        minimumRank: form.minimumRank,
-        instructorOfficerIds: [],
-        requests: [],
-        createdAt: timestamp,
-      };
-      setAusbildungRecords((prev) => [newRecord, ...prev]);
-      setSelectedAusbildungId(newRecord.id);
-    }
-
-    resetForm();
-  }
-
-  function deleteAusbildung(ausbildungId: string) {
-    setAusbildungRecords((prev) => prev.filter((record) => record.id !== ausbildungId));
-    if (selectedAusbildungId === ausbildungId) {
-      setSelectedAusbildungId(null);
-    }
-  }
-
-  function addInstructor(ausbildungId: string) {
-    const officerId = instructorDrafts[ausbildungId] ?? "";
-    if (!officerId) return;
-
-    setAusbildungRecords((prev) =>
-      prev.map((record) =>
-        record.id === ausbildungId && !record.instructorOfficerIds.includes(officerId)
-          ? { ...record, instructorOfficerIds: [...record.instructorOfficerIds, officerId] }
-          : record
-      )
-    );
-
-    setInstructorDrafts((prev) => ({ ...prev, [ausbildungId]: "" }));
-  }
-
-  function removeInstructor(ausbildungId: string, officerId: string) {
-    setAusbildungRecords((prev) =>
-      prev.map((record) =>
-        record.id === ausbildungId
-          ? { ...record, instructorOfficerIds: record.instructorOfficerIds.filter((id) => id !== officerId) }
-          : record
-      )
-    );
-  }
-
-  function submitParticipationRequest(ausbildungId: string) {
-    if (!requestOfficerId) return;
-
-    const requestedAt = new Date().toISOString();
-    setAusbildungRecords((prev) =>
-      prev.map((record) => {
-        if (record.id !== ausbildungId || !record.allowSelfSignup) return record;
-
-        const existing = record.requests.find((request) => request.officerId === requestOfficerId);
-        if (existing) {
-          return {
-            ...record,
-            requests: record.requests.map((request) =>
-              request.officerId === requestOfficerId
-                ? {
-                    ...request,
-                    status: "offen",
-                    requestedAt,
-                    decidedAt: null,
-                    decidedByOfficerId: null,
-                    note: "",
-                  }
-                : request
-            ),
-          };
-        }
-
-        const nextRequest: AusbildungRequestRecord = {
-          id: `ausb-request-${Date.now()}-${requestOfficerId}`,
-          officerId: requestOfficerId,
-          requestedAt,
-          status: "offen",
-          decidedAt: null,
-          decidedByOfficerId: null,
-          note: "",
-        };
-
-        return {
-          ...record,
-          requests: [nextRequest, ...record.requests],
-        };
-      })
-    );
-  }
-
-  function decideRequest(ausbildungId: string, requestId: string, nextStatus: AusbildungRequestStatus) {
-    if (nextStatus === "offen") return;
-
-    const record = ausbildungRecords.find((item) => item.id === ausbildungId);
-    if (!record) return;
-
-    const feedback = (feedbackDrafts[requestId] ?? "").trim();
-    const defaultNote = nextStatus === "bestätigt" ? "Teilnahme wurde bestätigt." : "Teilnahme wurde abgelehnt.";
-    const decidedByOfficerId = record.instructorOfficerIds[0] ?? null;
-
-    setAusbildungRecords((prev) =>
-      prev.map((item) =>
-        item.id === ausbildungId
-          ? {
-              ...item,
-              requests: item.requests.map((request) =>
-                request.id === requestId
-                  ? {
-                      ...request,
-                      status: nextStatus,
-                      decidedAt: new Date().toISOString(),
-                      decidedByOfficerId,
-                      note: feedback || defaultNote,
-                    }
-                  : request
-              ),
-            }
-          : item
-      )
-    );
-
-    setFeedbackDrafts((prev) => ({ ...prev, [requestId]: "" }));
-  }
-
-  function resolveOfficerName(officerId: string) {
-    return officerDirectory.find((entry) => entry.officer.id === officerId)?.name ?? "Unbekannter Officer";
-  }
-
-  function resolveOfficerLabel(officerId: string) {
-    const entry = officerDirectory.find((item) => item.officer.id === officerId);
-    if (!entry) return "Unbekannter Officer";
-    return `${entry.name} · ${entry.dienstnummer}`;
-  }
-
-  const detailRequests = selectedAusbildung?.requests ?? [];
-  const openRequests = detailRequests.filter((request) => request.status === "offen");
-  const confirmedRequests = detailRequests.filter((request) => request.status === "bestätigt");
-  const declinedRequests = detailRequests.filter((request) => request.status === "abgelehnt");
-
-  return (
-    <AppShell breadcrumb="Hammer Modding CopLink / Ausbildungen" title="Ausbildungen verwalten">
-      <SectionTitle
-        title="Ausbildungen verwalten"
-        action={<UiButton variant="green" onClick={startCreate}>Ausbildung hinzufügen</UiButton>}
-      />
-
-      <div className="mb-6 rounded-3xl border border-white/8 bg-black/20 p-5 text-sm text-white/65">
-        Lege Ausbildungen an, hinterlege Mindest-Ränge, füge Ausbilder hinzu und bearbeite Teilnahmeanfragen. Rechte und echte Benutzerkonten koppeln wir später sauber an dieses Modul an.
-      </div>
-
-      {showForm ? (
-        <div className="mb-8 rounded-[28px] border border-white/8 bg-[#0c0f15] p-6 shadow-[0_18px_50px_rgba(0,0,0,0.24)]">
-          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.28em] text-red-200/55">Ausbildung anlegen / bearbeiten</p>
-              <h3 className="mt-2 text-2xl font-bold text-white">{editingAusbildungId ? "Ausbildung bearbeiten" : "Neue Ausbildung"}</h3>
-            </div>
-            <UiButton variant="ghost" onClick={resetForm}>Abbrechen</UiButton>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <FieldBlock label="Titel der Ausbildung">
-              <FancyInput value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} placeholder="z. B. Taser" />
-            </FieldBlock>
-            <FieldBlock label="Kürzel der Ausbildung">
-              <FancyInput value={form.code} onChange={(event) => setForm((current) => ({ ...current, code: event.target.value.toUpperCase() }))} placeholder="z. B. TAS" />
-            </FieldBlock>
-            <FieldBlock label="Datum der Ausbildung">
-              <FancyInput type="date" value={form.scheduledDate} onChange={(event) => setForm((current) => ({ ...current, scheduledDate: event.target.value }))} />
-            </FieldBlock>
-            <FieldBlock label="Officer dürfen sich selbst eintragen?">
-              <FancySelect
-                value={form.allowSelfSignup ? "ja" : "nein"}
-                options={[{ value: "ja", label: "Ja" }, { value: "nein", label: "Nein" }]}
-                onChange={(value) => setForm((current) => ({ ...current, allowSelfSignup: value === "ja" }))}
-              />
-            </FieldBlock>
-            <FieldBlock label="Rang Minimum">
-              <FancySelect
-                value={form.minimumRank}
-                options={AUSBILDUNG_RANK_OPTIONS.map((rank) => ({ value: rank, label: rank }))}
-                onChange={(value) => setForm((current) => ({ ...current, minimumRank: value as AusbildungRank }))}
-              />
-            </FieldBlock>
-            <FieldBlock label="Inhalt der Ausbildung" className="md:col-span-2">
-              <FancyTextarea
-                rows={5}
-                value={form.content}
-                onChange={(event) => setForm((current) => ({ ...current, content: event.target.value }))}
-                placeholder="Allgemeine Taser-Ausbildung, Treffpunkt 20:00 Uhr, LSPD ..."
-              />
-            </FieldBlock>
-          </div>
-
-          <ActionBar className="mt-5">
-            <UiButton variant="green" onClick={saveAusbildung}>{editingAusbildungId ? "Änderungen speichern" : "Ausbildung speichern"}</UiButton>
-          </ActionBar>
-        </div>
-      ) : null}
-
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.35fr)]">
-        <div className="space-y-4">
-          <div className="rounded-[28px] border border-white/8 bg-[#0c0f15] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.24)]">
-            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.28em] text-red-200/55">Ausbildungsliste</p>
-                <h3 className="mt-2 text-2xl font-bold text-white">Vorhandene Ausbildungen</h3>
-              </div>
-              <ToneBadge text={`${ausbildungRecords.length} Einträge`} tone="neutral" />
-            </div>
-
-            {ausbildungRecords.length ? (
-              <div className="space-y-3">
-                {ausbildungRecords.map((record) => {
-                  const isSelected = record.id === selectedAusbildung?.id;
-                  const ownRequest = requestOfficerId ? record.requests.find((request) => request.officerId === requestOfficerId) : null;
-                  const ownStatusTone: BadgeTone = ownRequest?.status === "bestätigt" ? "green" : ownRequest?.status === "abgelehnt" ? "red" : ownRequest?.status === "offen" ? "yellow" : "neutral";
-
-                  return (
-                    <button
-                      key={record.id}
-                      type="button"
-                      onClick={() => setSelectedAusbildungId(record.id)}
-                      className={`w-full rounded-3xl border p-5 text-left transition ${isSelected ? "border-red-500/35 bg-red-500/[0.08]" : "border-white/8 bg-black/15 hover:border-white/15 hover:bg-white/[0.03]"}`}
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <h4 className="text-xl font-bold text-white">{record.title}</h4>
-                          <p className="mt-2 text-sm text-white/55">{record.content}</p>
-                        </div>
-                        <ToneBadge text={record.code} tone="red" />
-                      </div>
-                      <div className="mt-4 flex flex-wrap gap-2 text-xs text-white/55">
-                        <StatusBadge text={`Termin: ${formatCalendarDate(record.scheduledDate)}`} tone="cyan" />
-                        <StatusBadge text={`Min. ${record.minimumRank}`} tone="neutral" />
-                        <StatusBadge text={record.allowSelfSignup ? "Teilnahme anfragen: Ja" : "Teilnahme anfragen: Nein"} tone={record.allowSelfSignup ? "green" : "neutral"} />
-                        <StatusBadge text={`${record.instructorOfficerIds.length} Ausbilder`} tone="cyan" />
-                        <StatusBadge text={`${record.requests.length} Anfragen`} tone="yellow" />
-                        {ownRequest ? <StatusBadge text={`Mein Status: ${ownRequest.status}`} tone={ownStatusTone} /> : null}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="rounded-3xl border border-dashed border-white/10 bg-black/25 p-8 text-sm text-white/55">
-                Noch keine Ausbildungen angelegt. Erstelle zuerst über <span className="font-semibold text-white">Ausbildung hinzufügen</span> den ersten Eintrag.
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          <div className="rounded-[28px] border border-white/8 bg-[#0c0f15] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.24)]">
-            {selectedAusbildung ? (
-              <>
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[11px] uppercase tracking-[0.28em] text-red-200/55">Ausbildungsdetail</p>
-                    <h3 className="mt-2 text-3xl font-bold text-white">{selectedAusbildung.title}</h3>
-                    <p className="mt-3 max-w-3xl text-sm leading-6 text-white/65">{selectedAusbildung.content}</p>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <StatusBadge text={`Termin ${formatCalendarDate(selectedAusbildung.scheduledDate)}`} tone="cyan" />
-                      <StatusBadge text={`Kürzel ${selectedAusbildung.code}`} tone="red" />
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedAusbildung.allowSelfSignup ? (
-                      <UiButton variant="green" onClick={() => submitParticipationRequest(selectedAusbildung.id)}>Teilnahme anfragen</UiButton>
-                    ) : (
-                      <UiButton variant="ghost" disabled>Teilnahme gesperrt</UiButton>
-                    )}
-                    <UiButton variant="blue" onClick={() => startEdit(selectedAusbildung)}>Editieren</UiButton>
-                    <UiButton variant="red-alt" onClick={() => deleteAusbildung(selectedAusbildung.id)}>Löschen</UiButton>
-                  </div>
-                </div>
-
-                <div className="mt-5 grid gap-4 md:grid-cols-4">
-                  <InfoCard label="Kürzel" value={selectedAusbildung.code} />
-                  <InfoCard label="Rang Minimum" value={selectedAusbildung.minimumRank} />
-                  <InfoCard label="Selbsteintragung" value={selectedAusbildung.allowSelfSignup ? "Ja" : "Nein"} />
-                  <InfoCard label="Erstellt" value={selectedAusbildung.createdAt} />
-                </div>
-
-                <div className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-                  <div className="rounded-3xl border border-white/8 bg-black/18 p-4">
-                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <p className="text-[11px] uppercase tracking-[0.28em] text-red-200/55">Teilnahme / Vorschau bis Kontosystem</p>
-                        <h4 className="mt-2 text-xl font-bold text-white">Anfrage im Namen eines Officers</h4>
-                      </div>
-                    </div>
-                    <FieldBlock label="Officer auswählen">
-                      <FancySelect
-                        value={requestOfficerId}
-                        options={officerOptions}
-                        onChange={setRequestOfficerId}
-                        placeholder="Officer auswählen"
-                      />
-                    </FieldBlock>
-                    <div className="mt-4 rounded-2xl border border-white/8 bg-[#11131a] p-4">
-                      <p className="text-[11px] uppercase tracking-[0.22em] text-white/38">Status für ausgewählten Officer</p>
-                      {selectedRequestOfficer ? (
-                        <>
-                          <p className="mt-3 text-base font-semibold text-white">{selectedRequestOfficer.name}</p>
-                          {selectedOfficerRequest ? (
-                            <div className="mt-3 space-y-2 text-sm text-white/70">
-                              <StatusBadge
-                                text={selectedOfficerRequest.status === "offen" ? "Anfrage offen" : selectedOfficerRequest.status === "bestätigt" ? "Teilnahme bestätigt" : "Teilnahme abgelehnt"}
-                                tone={selectedOfficerRequest.status === "bestätigt" ? "green" : selectedOfficerRequest.status === "abgelehnt" ? "red" : "yellow"}
-                              />
-                              <p>Anfrage vom {formatDutyTimestamp(selectedOfficerRequest.requestedAt)}</p>
-                              <p>{selectedOfficerRequest.note || "Noch keine Rückmeldung hinterlegt."}</p>
-                            </div>
-                          ) : (
-                            <p className="mt-3 text-sm text-white/55">Für diesen Officer liegt aktuell noch keine Anfrage vor.</p>
-                          )}
-                        </>
-                      ) : (
-                        <p className="text-sm text-white/55">Noch kein Officer ausgewählt.</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="rounded-3xl border border-white/8 bg-black/18 p-4">
-                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <p className="text-[11px] uppercase tracking-[0.28em] text-red-200/55">Ausbilder</p>
-                        <h4 className="mt-2 text-xl font-bold text-white">Aktuelle Ausbilder</h4>
-                      </div>
-                    </div>
-                    <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
-                      <FancySelect
-                        value={instructorDrafts[selectedAusbildung.id] ?? ""}
-                        options={officerOptions.filter((option) => !selectedAusbildung.instructorOfficerIds.includes(option.value))}
-                        onChange={(value) => setInstructorDrafts((current) => ({ ...current, [selectedAusbildung.id]: value }))}
-                        placeholder="Officer als Ausbilder auswählen"
-                      />
-                      <UiButton variant="blue" onClick={() => addInstructor(selectedAusbildung.id)}>Ausbilder hinzufügen</UiButton>
-                    </div>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {selectedAusbildung.instructorOfficerIds.length ? selectedAusbildung.instructorOfficerIds.map((officerId) => (
-                        <div key={officerId} className="inline-flex items-center gap-2 rounded-full border border-cyan-400/25 bg-cyan-500/10 px-3 py-2 text-sm text-cyan-100">
-                          <span>{resolveOfficerLabel(officerId)}</span>
-                          <button type="button" className="rounded-full border border-white/10 bg-black/25 px-2 py-0.5 text-[11px] uppercase tracking-[0.18em] text-white/70" onClick={() => removeInstructor(selectedAusbildung.id, officerId)}>Entfernen</button>
-                        </div>
-                      )) : <p className="text-sm text-white/50">Noch keine Ausbilder hinterlegt.</p>}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-6 space-y-4">
-                  <div className="rounded-3xl border border-white/8 bg-black/18 p-4">
-                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <p className="text-[11px] uppercase tracking-[0.28em] text-red-200/55">Anfragen</p>
-                        <h4 className="mt-2 text-xl font-bold text-white">Offene Teilnahmeanfragen</h4>
-                      </div>
-                      <StatusBadge text={`${openRequests.length} offen`} tone="yellow" />
-                    </div>
-                    <div className="space-y-3">
-                      {openRequests.length ? openRequests.map((request) => (
-                        <div key={request.id} className="rounded-2xl border border-white/8 bg-[#11131a] p-4">
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div>
-                              <p className="text-base font-semibold text-white">{resolveOfficerLabel(request.officerId)}</p>
-                              <p className="mt-1 text-sm text-white/50">Anfrage vom {formatDutyTimestamp(request.requestedAt)}</p>
-                            </div>
-                            <StatusBadge text="Offen" tone="yellow" />
-                          </div>
-                          <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto]">
-                            <FancyInput
-                              value={feedbackDrafts[request.id] ?? ""}
-                              onChange={(event) => setFeedbackDrafts((current) => ({ ...current, [request.id]: event.target.value }))}
-                              placeholder="Rückmeldung / Grund (optional)"
-                            />
-                            <UiButton variant="green" onClick={() => decideRequest(selectedAusbildung.id, request.id, "bestätigt")}>Bestätigen</UiButton>
-                            <UiButton variant="red-alt" onClick={() => decideRequest(selectedAusbildung.id, request.id, "abgelehnt")}>Ablehnen</UiButton>
-                          </div>
-                        </div>
-                      )) : <p className="text-sm text-white/50">Aktuell liegen keine offenen Teilnahmeanfragen vor.</p>}
-                    </div>
-                  </div>
-
-                  <div className="grid gap-4 lg:grid-cols-2">
-                    <div className="rounded-3xl border border-white/8 bg-black/18 p-4">
-                      <div className="mb-4 flex items-center justify-between gap-3">
-                        <h4 className="text-xl font-bold text-white">Bestätigte Teilnehmer</h4>
-                        <StatusBadge text={`${confirmedRequests.length} bestätigt`} tone="green" />
-                      </div>
-                      <div className="space-y-3">
-                        {confirmedRequests.length ? confirmedRequests.map((request) => (
-                          <div key={request.id} className="rounded-2xl border border-emerald-400/15 bg-emerald-500/[0.06] p-4 text-sm text-white/75">
-                            <p className="font-semibold text-white">{resolveOfficerLabel(request.officerId)}</p>
-                            <p className="mt-1">{request.note || "Teilnahme wurde bestätigt."}</p>
-                          </div>
-                        )) : <p className="text-sm text-white/50">Noch keine bestätigten Teilnehmer vorhanden.</p>}
-                      </div>
-                    </div>
-
-                    <div className="rounded-3xl border border-white/8 bg-black/18 p-4">
-                      <div className="mb-4 flex items-center justify-between gap-3">
-                        <h4 className="text-xl font-bold text-white">Abgelehnte Anfragen</h4>
-                        <StatusBadge text={`${declinedRequests.length} abgelehnt`} tone="red" />
-                      </div>
-                      <div className="space-y-3">
-                        {declinedRequests.length ? declinedRequests.map((request) => (
-                          <div key={request.id} className="rounded-2xl border border-rose-400/15 bg-rose-500/[0.06] p-4 text-sm text-white/75">
-                            <p className="font-semibold text-white">{resolveOfficerLabel(request.officerId)}</p>
-                            <p className="mt-1">{request.note || "Teilnahme wurde abgelehnt."}</p>
-                          </div>
-                        )) : <p className="text-sm text-white/50">Noch keine abgelehnten Anfragen vorhanden.</p>}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="rounded-3xl border border-dashed border-white/10 bg-black/25 p-8 text-sm text-white/55">
-                Wähle links eine Ausbildung aus oder erstelle den ersten Eintrag.
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </AppShell>
-  );
-}
-
-
-
-function UrlaubApp() {
-  const { urlaubRecords, setUrlaubRecords, officerRecords, aktenRecords } = useContext(RecordsContext);
-  const officerDirectory = useMemo(() => buildOfficerDirectory(officerRecords, aktenRecords), [aktenRecords, officerRecords]);
-  const officerOptions = useMemo(
-    () => officerDirectory.map((entry) => ({ value: entry.officer.id, label: `${entry.name} · ${entry.dienstnummer}` })),
-    [officerDirectory]
-  );
-  const [showForm, setShowForm] = useState(false);
-  const [viewDate, setViewDate] = useState(() => {
-    const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth(), 1, 12, 0, 0, 0);
-  });
-  const [rangeStart, setRangeStart] = useState("");
-  const [rangeEnd, setRangeEnd] = useState("");
-  const [form, setForm] = useState({
-    officerId: "",
-    type: "urlaub" as UrlaubType,
-    reason: "",
-  });
-
-  useEffect(() => {
-    if (!officerOptions.length) {
-      if (form.officerId) setForm((current) => ({ ...current, officerId: "" }));
-      return;
-    }
-
-    if (!form.officerId || !officerOptions.some((option) => option.value === form.officerId)) {
-      setForm((current) => ({ ...current, officerId: officerOptions[0]?.value ?? "" }));
-    }
-  }, [form.officerId, officerOptions]);
-
-  const monthCells = useMemo(() => buildMonthCells(viewDate), [viewDate]);
-  const todayKey = useMemo(() => toDateOnlyValue(new Date()), []);
-
-  const upcomingRecords = useMemo(
-    () => [...urlaubRecords].filter((record) => record.endDate >= todayKey).sort((left, right) => left.startDate.localeCompare(right.startDate)),
-    [todayKey, urlaubRecords]
-  );
-  const pastRecords = useMemo(
-    () => [...urlaubRecords].filter((record) => record.endDate < todayKey).sort((left, right) => right.startDate.localeCompare(left.startDate)),
-    [todayKey, urlaubRecords]
-  );
-
-  function resetForm() {
-    setShowForm(false);
-    setRangeStart("");
-    setRangeEnd("");
-    setForm((current) => ({ ...current, type: "urlaub", reason: "" }));
-  }
-
-  function resolveOfficerLabel(officerId: string) {
-    const entry = officerDirectory.find((item) => item.officer.id === officerId);
-    if (!entry) return "Unbekannter Officer";
-    return `${entry.name} · ${entry.dienstnummer}`;
-  }
-
-  function handleDatePick(dateKey: string) {
-    if (!rangeStart || (rangeStart && rangeEnd)) {
-      setRangeStart(dateKey);
-      setRangeEnd("");
-      return;
-    }
-
-    if (dateKey < rangeStart) {
-      setRangeStart(dateKey);
-      return;
-    }
-
-    setRangeEnd(dateKey);
-  }
-
-  function saveUrlaub() {
-    if (!form.officerId || !rangeStart || !rangeEnd) return;
-
-    const startDate = rangeStart <= rangeEnd ? rangeStart : rangeEnd;
-    const endDate = rangeStart <= rangeEnd ? rangeEnd : rangeStart;
-    const nextRecord: UrlaubRecord = {
-      id: `urlaub-${Date.now()}`,
-      officerId: form.officerId,
-      startDate,
-      endDate,
-      type: form.type,
-      reason: form.reason.trim(),
-      createdAt: new Date().toISOString(),
-    };
-
-    setUrlaubRecords((prev) => [nextRecord, ...prev]);
-    resetForm();
-  }
-
-  function deleteUrlaub(recordId: string) {
-    setUrlaubRecords((prev) => prev.filter((record) => record.id !== recordId));
-  }
-
-  return (
-    <AppShell breadcrumb="Hammer Modding CopLink / Urlaub" title="Mein Urlaub">
-      <SectionTitle
-        title="Mein Urlaub"
-        action={<UiButton variant="green" onClick={() => setShowForm(true)}>Urlaub hinzufügen</UiButton>}
-      />
-
-      <div className="mb-6 rounded-3xl border border-white/8 bg-black/20 p-5 text-sm text-white/65">
-        Trage Urlaub oder Abwesenheiten als Zeitraum ein. Bis echte Benutzerkonten fertig sind, verwaltest du Einträge im Namen eines Officers. Alle gespeicherten Zeiträume werden automatisch im Kalender angezeigt.
-      </div>
-
-      {showForm ? (
-        <div className="mb-8 rounded-[28px] border border-white/8 bg-[#0c0f15] p-6 shadow-[0_18px_50px_rgba(0,0,0,0.24)]">
-          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.28em] text-red-200/55">Urlaub / Abwesenheit</p>
-              <h3 className="mt-2 text-2xl font-bold text-white">Zeitraum eintragen</h3>
-            </div>
-            <UiButton variant="ghost" onClick={resetForm}>Abbrechen</UiButton>
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)]">
-            <div className="space-y-4 rounded-3xl border border-white/8 bg-black/18 p-5">
-              <FieldBlock label="Officer / Vorschau bis Kontosystem">
-                <FancySelect value={form.officerId} options={officerOptions} onChange={(value) => setForm((current) => ({ ...current, officerId: value }))} placeholder="Officer auswählen" />
-              </FieldBlock>
-
-              <FieldBlock label="Eintragstyp">
-                <FancySelect
-                  value={form.type}
-                  options={[
-                    { value: "urlaub", label: "Urlaub" },
-                    { value: "abwesenheit", label: "Abwesenheit" },
-                  ]}
-                  onChange={(value) => setForm((current) => ({ ...current, type: value as UrlaubType }))}
-                />
-              </FieldBlock>
-
-              <FieldBlock label="Grund / Kommentar">
-                <FancyTextarea rows={5} value={form.reason} onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))} placeholder="z. B. Urlaub, Fortbildung extern, private Abwesenheit ..." />
-              </FieldBlock>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <InfoCard label="Start" value={rangeStart ? formatCalendarDate(rangeStart) : "Kein Start gewählt"} />
-                <InfoCard label="Ende" value={rangeEnd ? formatCalendarDate(rangeEnd) : "Kein Ende gewählt"} />
-              </div>
-
-              <ActionBar>
-                <UiButton variant="green" onClick={saveUrlaub}>Zeitraum speichern</UiButton>
-                <UiButton variant="ghost" onClick={() => { setRangeStart(""); setRangeEnd(""); }}>Auswahl leeren</UiButton>
-              </ActionBar>
-            </div>
-
-            <div className="rounded-3xl border border-white/8 bg-black/18 p-5">
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.28em] text-red-200/55">Kalenderauswahl</p>
-                  <h4 className="mt-2 text-xl font-bold text-white">Zeitraum per Klick markieren</h4>
-                </div>
-                <div className="flex items-center gap-2">
-                  <UiButton variant="ghost" onClick={() => setViewDate((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1, 12, 0, 0, 0))}>‹</UiButton>
-                  <UiButton variant="ghost" onClick={() => setViewDate((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1, 12, 0, 0, 0))}>›</UiButton>
-                </div>
-              </div>
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <p className="text-lg font-semibold text-white">{viewDate.toLocaleDateString("de-DE", { month: "long", year: "numeric" })}</p>
-                <div className="flex flex-wrap gap-2 text-xs">
-                  <StatusBadge text="1. Klick = Start" tone="neutral" />
-                  <StatusBadge text="2. Klick = Ende" tone="cyan" />
-                </div>
-              </div>
-              <div className="grid grid-cols-7 gap-2 text-center text-xs text-white/35">
-                {["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"].map((label) => (
-                  <div key={label} className="rounded-xl border border-white/6 bg-white/[0.03] px-2 py-2 font-semibold text-white/65">{label}</div>
-                ))}
-                {monthCells.map((cell) => {
-                  const isStart = rangeStart === cell.key;
-                  const isEnd = rangeEnd === cell.key;
-                  const inRange = rangeStart && rangeEnd ? isDateBetween(cell.key, rangeStart <= rangeEnd ? rangeStart : rangeEnd, rangeStart <= rangeEnd ? rangeEnd : rangeStart) : false;
-                  return (
-                    <button
-                      key={cell.key}
-                      type="button"
-                      onClick={() => handleDatePick(cell.key)}
-                      className={`min-h-[86px] rounded-2xl border p-3 text-left transition ${!cell.currentMonth ? "border-white/6 bg-black/15 text-white/28" : inRange ? "border-cyan-400/35 bg-cyan-500/14 text-white" : "border-white/8 bg-black/18 text-white/80 hover:border-white/16 hover:bg-white/[0.05]"} ${isStart || isEnd ? "ring-1 ring-red-400/45" : ""}`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <span className={`text-sm font-semibold ${cell.isToday ? "text-red-200" : ""}`}>{cell.label}</span>
-                        {isStart ? <StatusBadge text="Start" tone="red" /> : null}
-                        {!isStart && isEnd ? <StatusBadge text="Ende" tone="cyan" /> : null}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      <div className="grid gap-6 xl:grid-cols-2">
-        <div className="rounded-[28px] border border-white/8 bg-[#0c0f15] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.24)]">
-          <div className="mb-5 flex items-center justify-between gap-3">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.28em] text-red-200/55">Aktiv / geplant</p>
-              <h3 className="mt-2 text-2xl font-bold text-white">Offene Urlaube & Abwesenheiten</h3>
-            </div>
-            <ToneBadge text={`${upcomingRecords.length} Einträge`} tone="neutral" />
-          </div>
-          <div className="space-y-3">
-            {upcomingRecords.length ? upcomingRecords.map((record) => (
-              <div key={record.id} className="rounded-3xl border border-white/8 bg-black/18 p-5">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="text-lg font-bold text-white">{resolveOfficerLabel(record.officerId)}</p>
-                    <p className="mt-2 text-sm text-white/60">{formatCalendarDate(record.startDate)} bis {formatCalendarDate(record.endDate)}</p>
-                    <p className="mt-3 text-sm text-white/65">{record.reason || "Kein Grund hinterlegt."}</p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <StatusBadge text={record.type === "urlaub" ? "Urlaub" : "Abwesenheit"} tone={record.type === "urlaub" ? "green" : "yellow"} />
-                    <UiButton variant="red-alt" onClick={() => deleteUrlaub(record.id)}>Löschen</UiButton>
-                  </div>
-                </div>
-              </div>
-            )) : <div className="rounded-3xl border border-dashed border-white/10 bg-black/25 p-8 text-sm text-white/55">Aktuell liegen keine offenen Urlaubs- oder Abwesenheitseinträge vor.</div>}
-          </div>
-        </div>
-
-        <div className="rounded-[28px] border border-white/8 bg-[#0c0f15] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.24)]">
-          <div className="mb-5 flex items-center justify-between gap-3">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.28em] text-red-200/55">Historie</p>
-              <h3 className="mt-2 text-2xl font-bold text-white">Vergangene Einträge</h3>
-            </div>
-            <ToneBadge text={`${pastRecords.length} Historisch`} tone="neutral" />
-          </div>
-          <div className="space-y-3">
-            {pastRecords.length ? pastRecords.map((record) => (
-              <div key={record.id} className="rounded-3xl border border-white/8 bg-black/18 p-5">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="text-base font-semibold text-white">{resolveOfficerLabel(record.officerId)}</p>
-                    <p className="mt-2 text-sm text-white/60">{formatCalendarDate(record.startDate)} bis {formatCalendarDate(record.endDate)}</p>
-                    <p className="mt-3 text-sm text-white/65">{record.reason || "Kein Grund hinterlegt."}</p>
-                  </div>
-                  <StatusBadge text={record.type === "urlaub" ? "Urlaub" : "Abwesenheit"} tone={record.type === "urlaub" ? "green" : "yellow"} />
-                </div>
-              </div>
-            )) : <div className="rounded-3xl border border-dashed border-white/10 bg-black/25 p-8 text-sm text-white/55">Noch keine abgeschlossenen Einträge vorhanden.</div>}
-          </div>
-        </div>
-      </div>
-    </AppShell>
-  );
-}
-
-function KalenderApp() {
-  const { ausbildungRecords, urlaubRecords, officerRecords, aktenRecords } = useContext(RecordsContext);
-  const [viewDate, setViewDate] = useState(() => {
-    const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth(), 1, 12, 0, 0, 0);
-  });
-  const [selectedDate, setSelectedDate] = useState(() => toDateOnlyValue(new Date()));
-  const officerDirectory = useMemo(() => buildOfficerDirectory(officerRecords, aktenRecords), [aktenRecords, officerRecords]);
-  const officerMap = useMemo(() => new Map(officerDirectory.map((entry) => [entry.officer.id, `${entry.name} · ${entry.dienstnummer}`])), [officerDirectory]);
-  const monthCells = useMemo(() => buildMonthCells(viewDate), [viewDate]);
-
-  const eventMap = useMemo(() => {
-    const result = new Map<string, Array<{ id: string; kind: "termin" | "urlaub" | "abwesenheit"; tone: BadgeTone; label: string; detail: string; secondary?: string }>>();
-
-    ausbildungRecords.forEach((record) => {
-      if (!record.scheduledDate) return;
-      const items = result.get(record.scheduledDate) ?? [];
-      items.push({
-        id: `ausbildung-${record.id}`,
-        kind: "termin",
-        tone: "cyan",
-        label: record.title,
-        detail: record.content || `${record.code} · Ausbildung`,
-        secondary: `${record.code} · ${formatCalendarDate(record.scheduledDate)}`,
-      });
-      result.set(record.scheduledDate, items);
-    });
-
-    urlaubRecords.forEach((record) => {
-      const officerLabel = officerMap.get(record.officerId) ?? "Officer";
-      const rangeLabel = record.startDate === record.endDate
-        ? formatCalendarDate(record.startDate)
-        : `${formatCalendarDate(record.startDate)} bis ${formatCalendarDate(record.endDate)}`;
-
-      enumerateDateRange(record.startDate, record.endDate).forEach((dateKey) => {
-        const items = result.get(dateKey) ?? [];
-        items.push({
-          id: `urlaub-${record.id}-${dateKey}`,
-          kind: record.type === "urlaub" ? "urlaub" : "abwesenheit",
-          tone: record.type === "urlaub" ? "green" : "yellow",
-          label: officerLabel,
-          detail: record.reason || (record.type === "urlaub" ? "Urlaub eingetragen" : "Abwesenheit eingetragen"),
-          secondary: rangeLabel,
-        });
-        result.set(dateKey, items);
-      });
-    });
-
-    return result;
-  }, [ausbildungRecords, officerMap, urlaubRecords]);
-
-  const selectedEvents = eventMap.get(selectedDate) ?? [];
-
-  const upcomingTermine = useMemo(() => {
-    return ausbildungRecords
-      .filter((record) => record.scheduledDate)
-      .sort((left, right) => (left.scheduledDate ?? "").localeCompare(right.scheduledDate ?? ""))
-      .slice(0, 8)
-      .map((record) => ({
-        key: record.id,
-        date: record.scheduledDate!,
-        title: record.title,
-        code: record.code,
-        description: record.content,
-      }));
-  }, [ausbildungRecords]);
-
-  const absenceOverview = useMemo(() => {
-    return [...urlaubRecords]
-      .sort((left, right) => left.startDate.localeCompare(right.startDate))
-      .slice(0, 10)
-      .map((record) => ({
-        key: record.id,
-        type: record.type,
-        officerLabel: officerMap.get(record.officerId) ?? "Officer",
-        rangeLabel: record.startDate === record.endDate
-          ? formatCalendarDate(record.startDate)
-          : `${formatCalendarDate(record.startDate)} bis ${formatCalendarDate(record.endDate)}`,
-        reason: record.reason,
-      }));
-  }, [officerMap, urlaubRecords]);
-
-  return (
-    <AppShell breadcrumb="Hammer Modding CopLink / Kalender" title="Kalender">
-      <SectionTitle
-        title="Kalender"
-        action={
-          <div className="flex items-center gap-2">
-            <UiButton variant="ghost" onClick={() => setViewDate((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1, 12, 0, 0, 0))}>‹ Monat</UiButton>
-            <UiButton variant="ghost" onClick={() => setViewDate((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1, 12, 0, 0, 0))}>Monat ›</UiButton>
-          </div>
-        }
-      />
-
-      <div className="mb-6 rounded-3xl border border-white/8 bg-black/20 p-5 text-sm text-white/65">
-        Die Monatsübersicht bleibt absichtlich kompakt. In den Kalendertagen werden nur die Kategorien angezeigt: Termine, Urlaub und Abwesenheit. Details zu Personen, Inhalten und Zeiträumen siehst du erst nach Auswahl des Tages oder rechts in den Übersichten.
-      </div>
-
-      <div className="mb-6 flex flex-wrap gap-2">
-        <StatusBadge text="Termin" tone="cyan" />
-        <StatusBadge text="Urlaub" tone="green" />
-        <StatusBadge text="Abwesenheit" tone="yellow" />
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
-        <div className="rounded-[28px] border border-white/8 bg-[#0c0f15] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.24)]">
-          <div className="mb-5 flex items-center justify-between gap-3">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.28em] text-red-200/55">Monatsübersicht</p>
-              <h3 className="mt-2 text-2xl font-bold text-white">{viewDate.toLocaleDateString("de-DE", { month: "long", year: "numeric" })}</h3>
-            </div>
-            <ToneBadge text={`${eventMap.size} belegte Tage`} tone="neutral" />
-          </div>
-          <div className="grid grid-cols-7 gap-2 text-center text-xs text-white/35">
-            {["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"].map((label) => (
-              <div key={label} className="rounded-xl border border-white/6 bg-white/[0.03] px-3 py-3 font-semibold text-white/65">{label}</div>
-            ))}
-            {monthCells.map((cell) => {
-              const events = eventMap.get(cell.key) ?? [];
-              const hasTermin = events.some((entry) => entry.kind === "termin");
-              const hasUrlaub = events.some((entry) => entry.kind === "urlaub");
-              const hasAbwesenheit = events.some((entry) => entry.kind === "abwesenheit");
-              const isSelected = selectedDate === cell.key;
-              return (
-                <button
-                  key={cell.key}
-                  type="button"
-                  onClick={() => setSelectedDate(cell.key)}
-                  className={`min-h-[112px] rounded-2xl border p-3 text-left transition ${!cell.currentMonth ? "border-white/6 bg-black/15 text-white/28" : "border-white/8 bg-black/18 text-white/85 hover:border-white/16 hover:bg-white/[0.05]"} ${isSelected ? "ring-1 ring-red-400/40" : ""}`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <span className={`text-sm font-semibold ${cell.isToday ? "text-red-200" : "text-white"}`}>{cell.label}</span>
-                    {events.length ? <ToneBadge text={`${events.length}`} tone="neutral" /> : null}
-                  </div>
-                  <div className="mt-3 space-y-2">
-                    {hasTermin ? <div className={`rounded-xl border px-2 py-1 text-[11px] leading-4 ${getBadgeToneClass("cyan")}`}>Termin</div> : null}
-                    {hasUrlaub ? <div className={`rounded-xl border px-2 py-1 text-[11px] leading-4 ${getBadgeToneClass("green")}`}>Urlaub</div> : null}
-                    {hasAbwesenheit ? <div className={`rounded-xl border px-2 py-1 text-[11px] leading-4 ${getBadgeToneClass("yellow")}`}>Abwesenheit</div> : null}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="space-y-6">
-          <div className="rounded-[28px] border border-white/8 bg-[#0c0f15] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.24)]">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.28em] text-red-200/55">Tagesdetails</p>
-                <h3 className="mt-2 text-2xl font-bold text-white">{formatCalendarDate(selectedDate)}</h3>
-              </div>
-              <ToneBadge text={`${selectedEvents.length} Einträge`} tone="neutral" />
-            </div>
-            <div className="space-y-3">
-              {selectedEvents.length ? selectedEvents.map((entry) => (
-                <div key={entry.id} className="rounded-2xl border border-white/8 bg-black/18 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-semibold text-white">{entry.kind === "termin" ? `Termin · ${entry.label}` : `${entry.kind === "urlaub" ? "Urlaub" : "Abwesenheit"} · ${entry.label}`}</p>
-                      {entry.secondary ? <p className="mt-1 text-sm text-white/55">{entry.secondary}</p> : null}
-                      <p className="mt-2 text-sm text-white/65">{entry.detail}</p>
-                    </div>
-                    <StatusBadge text={entry.kind === "termin" ? "Termin" : entry.kind === "urlaub" ? "Urlaub" : "Abwesenheit"} tone={entry.tone} />
-                  </div>
-                </div>
-              )) : <div className="rounded-3xl border border-dashed border-white/10 bg-black/25 p-8 text-sm text-white/55">Für diesen Tag liegen aktuell keine Einträge vor.</div>}
-            </div>
-          </div>
-
-          <div className="rounded-[28px] border border-white/8 bg-[#0c0f15] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.24)]">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.28em] text-red-200/55">Termine</p>
-                <h3 className="mt-2 text-2xl font-bold text-white">Ausbildungstermine</h3>
-              </div>
-            </div>
-            <div className="space-y-3">
-              {upcomingTermine.length ? upcomingTermine.map((entry) => (
-                <button key={entry.key} type="button" onClick={() => setSelectedDate(entry.date)} className="w-full rounded-2xl border border-white/8 bg-black/18 p-4 text-left transition hover:border-white/15 hover:bg-white/[0.03]">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-semibold text-white">{entry.title}</p>
-                      <p className="mt-1 text-sm text-white/55">{formatCalendarDate(entry.date)}</p>
-                      <p className="mt-2 text-sm text-white/65">{entry.code}</p>
-                    </div>
-                    <StatusBadge text="Termin" tone="cyan" />
-                  </div>
-                </button>
-              )) : <div className="rounded-3xl border border-dashed border-white/10 bg-black/25 p-8 text-sm text-white/55">Aktuell sind keine Ausbildungstermine vorhanden.</div>}
-            </div>
-          </div>
-
-          <div className="rounded-[28px] border border-white/8 bg-[#0c0f15] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.24)]">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.28em] text-red-200/55">Urlaub / Abwesenheit</p>
-                <h3 className="mt-2 text-2xl font-bold text-white">Eingetragene Zeiträume</h3>
-              </div>
-            </div>
-            <div className="space-y-3">
-              {absenceOverview.length ? absenceOverview.map((entry) => (
-                <button key={entry.key} type="button" onClick={() => setSelectedDate(urlaubRecords.find((record) => record.id === entry.key)?.startDate ?? selectedDate)} className="w-full rounded-2xl border border-white/8 bg-black/18 p-4 text-left transition hover:border-white/15 hover:bg-white/[0.03]">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-semibold text-white">{entry.officerLabel}</p>
-                      <p className="mt-1 text-sm text-white/55">{entry.rangeLabel}</p>
-                      <p className="mt-2 text-sm text-white/65">{entry.reason || "Kein zusätzlicher Grund hinterlegt."}</p>
-                    </div>
-                    <StatusBadge text={entry.type === "urlaub" ? "Urlaub" : "Abwesenheit"} tone={entry.type === "urlaub" ? "green" : "yellow"} />
-                  </div>
-                </button>
-              )) : <div className="rounded-3xl border border-dashed border-white/10 bg-black/25 p-8 text-sm text-white/55">Aktuell sind keine Urlaubs- oder Abwesenheitseinträge vorhanden.</div>}
-            </div>
-          </div>
-        </div>
-      </div>
-    </AppShell>
-  );
-}
-
 function renderAppContent(appId: AppId) {
   switch (appId) {
     case "akten":
@@ -7149,7 +5444,7 @@ function renderAppContent(appId: AppId) {
       return (<EinstellungenAppView />);
 
     case "ausbildungen":
-      return <AusbildungenApp />;
+      return (<AusbildungenAppView />);
 
     case "taschenrechner":
       return <CalculatorApp />;
@@ -7161,7 +5456,7 @@ function renderAppContent(appId: AppId) {
       return <StrafenApp />;
 
     case "urlaub":
-      return <UrlaubApp />;
+      return (<UrlaubAppView />);
 
     case "strafanzeigen":
       return <StrafanzeigenApp />;
@@ -7176,7 +5471,7 @@ function renderAppContent(appId: AppId) {
       return (<EinsatzberichteAppView />);
 
     case "kalender":
-      return <KalenderApp />;
+      return (<KalenderAppView />);
 
     case "notizen":
       return (<NotizenAppView />);
@@ -7214,19 +5509,15 @@ export default function Home() {
   const [clockOpen, setClockOpen] = useState(false);
   const [now, setNow] = useState<Date | null>(null);
   const [aktenRecords, setAktenRecords] = useState<AktenRecord[]>(INITIAL_AKTEN_RECORDS);
-  const [ausbildungRecords, setAusbildungRecords] = useState<AusbildungRecord[]>(INITIAL_AUSBILDUNGEN);
   const [kfzRecords, setKfzRecords] = useState<KfzRecord[]>(INITIAL_KFZ_RECORDS);
   const [strafanzeigenRecords, setStrafanzeigenRecords] = useState<StrafanzeigeRecord[]>(INITIAL_STRAFANZEIGEN);
   const [weaponRecords, setWeaponRecords] = useState<WeaponRecord[]>(INITIAL_WEAPON_RECORDS);
   const [officerRecords, setOfficerRecords] = useState<OfficerRecord[]>(INITIAL_OFFICER_RECORDS);
-  const [urlaubRecords, setUrlaubRecords] = useState<UrlaubRecord[]>(INITIAL_URLAUB_RECORDS);
   const [asservatenSchraenke, setAsservatenSchraenke] = useState<AsservatenSchrankRecord[]>(INITIAL_ASSERVATEN_SCHRAENKE);
   const [asservatenItems, setAsservatenItems] = useState<AsservatenItemRecord[]>(INITIAL_ASSERVATEN_ITEMS);
   const [leitstellenStatusRecords, setLeitstellenStatusRecords] = useState<LeitstellenStatusRecord[]>(INITIAL_LEITSTELLEN_STATUS_RECORDS);
   const [leitstellenStreifen, setLeitstellenStreifen] = useState<LeitstellenStreifenRecord[]>(INITIAL_LEITSTELLEN_STREIFEN);
   const [leitstellenDispatcher, setLeitstellenDispatcher] = useState<LeitstellenDispatcherRecord>(INITIAL_LEITSTELLEN_DISPATCHER);
-  const [strafgesetzRecords, setStrafgesetzRecords] = useState<StrafgesetzRecord[]>(STRAFGESETZE);
-  const [strafkatalogRecords, setStrafkatalogRecords] = useState<StrafkatalogEintrag[]>(STRAFKATALOG);
 
   useEffect(() => {
     setNow(new Date());
@@ -7616,7 +5907,7 @@ export default function Home() {
   });
 
   return (
-    <RecordsContext.Provider value={{ aktenRecords, setAktenRecords, ausbildungRecords, setAusbildungRecords, kfzRecords, setKfzRecords, strafanzeigenRecords, setStrafanzeigenRecords, weaponRecords, setWeaponRecords, officerRecords, setOfficerRecords, urlaubRecords, setUrlaubRecords, asservatenSchraenke, setAsservatenSchraenke, asservatenItems, setAsservatenItems, leitstellenStatusRecords, setLeitstellenStatusRecords, leitstellenStreifen, setLeitstellenStreifen, leitstellenDispatcher, setLeitstellenDispatcher, strafgesetzRecords, setStrafgesetzRecords, strafkatalogRecords, setStrafkatalogRecords }}>
+    <RecordsContext.Provider value={{ aktenRecords, setAktenRecords, kfzRecords, setKfzRecords, strafanzeigenRecords, setStrafanzeigenRecords, weaponRecords, setWeaponRecords, officerRecords, setOfficerRecords, asservatenSchraenke, setAsservatenSchraenke, asservatenItems, setAsservatenItems, leitstellenStatusRecords, setLeitstellenStatusRecords, leitstellenStreifen, setLeitstellenStreifen, leitstellenDispatcher, setLeitstellenDispatcher }}>
       <QuickOpenContext.Provider value={openApp}>
         <main ref={desktopRef} className="desktop-bg desktop-grid relative min-h-screen overflow-hidden text-white">
       <div className="desktop-glow absolute inset-0" />
